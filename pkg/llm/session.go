@@ -35,6 +35,10 @@ func NewSession(llm LLM, cfg SessionConfig) *Session {
 
 // Complete sends the prompt through the underlying LLM and records the exchange.
 func (s *Session) Complete(ctx context.Context, prompt Message) (Message, error) {
+	return s.complete(ctx, prompt, s.systemPrompt)
+}
+
+func (s *Session) complete(ctx context.Context, prompt Message, systemPrompt string) (Message, error) {
 	if s.llm == nil {
 		return Message{}, errors.New("llm provider is required")
 	}
@@ -46,7 +50,7 @@ func (s *Session) Complete(ctx context.Context, prompt Message) (Message, error)
 	history := append([]Message(nil), s.transcript...)
 
 	resp, err := s.llm.Complete(ctx, ChatRequest{
-		SystemPrompt: s.systemPrompt,
+		SystemPrompt: systemPrompt,
 		Transcript:   history,
 		Prompt:       prompt,
 	})
