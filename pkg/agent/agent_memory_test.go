@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -88,6 +89,35 @@ func TestLoopLoadsMemoriesBeforePlanning(t *testing.T) {
 	}
 }
 
+func TestLoopChainsNextPlan(t *testing.T) {
+	var invoked int
+	planner := chainPlanner{Steps: 2}
+	invoker := &countingInvoker{invokes: &invoked}
+
+	loop := Loop{
+		Planner:     planner,
+		ToolInvoker: invoker,
+		Composer:    SimpleComposer{},
+	}
+
+	msg, err := loop.Respond(context.Background(), Input{
+		Event: model.Event{
+			SessionID: "s-next",
+			Content:   "go",
+			Timestamp: time.Now(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Respond returned error: %v", err)
+	}
+	if msg.Content != "step-2" {
+		t.Fatalf("expected final content step-2, got %q", msg.Content)
+	}
+	if invoked != 2 {
+		t.Fatalf("expected 2 invocations, got %d", invoked)
+	}
+}
+
 type stubMemoryStore struct {
 	data map[memory.Layer][]string
 }
@@ -115,10 +145,39 @@ type spyMemory struct {
 	recorded bool
 }
 
-func (s *spyMemory) RecordTurn(ctx context.Context, sessionID string, timestamp time.Time, userContent string, assistant model.Message) {
+func (s *spyMemory) RecordTurn(ctx context.Context, sessionID string, user model.Message, assistant model.Message) {
 	s.recorded = true
 }
 
 func (s *spyMemory) Load(ctx context.Context, sessionID string) MemoryContext {
 	return s.context
+}
+
+type chainPlanner struct {
+	Steps int
+}
+
+func (p chainPlanner) Plan(ctx context.Context, input Input) (Plan, error) {
+	var head *Plan
+	for i := p.Steps; i >= 1; i-- {
+		head = &Plan{
+			Summary: "step-" + strconv.Itoa(i),
+			Next:    head,
+		}
+	}
+	if head == nil {
+		head = &Plan{Summary: "step-0"}
+	}
+	return *head, nil
+}
+
+type countingInvoker struct {
+	invokes *int
+}
+
+func (c *countingInvoker) Invoke(ctx context.Context, plan Plan) ([]ToolResult, error) {
+	if c.invokes != nil {
+		*c.invokes++
+	}
+	return nil, nil
 }

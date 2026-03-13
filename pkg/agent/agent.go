@@ -24,7 +24,10 @@ type Input struct {
 type Plan struct {
 	Summary   string
 	ToolCalls []ToolCall
+	Next      *Plan
 }
+
+const maxPlanChain = 4
 
 // ToolKind indicates which subsystem should execute the tool.
 type ToolKind string
@@ -82,25 +85,37 @@ func (a Loop) Respond(ctx context.Context, input Input) (model.Message, error) {
 		return model.Message{}, err
 	}
 
-	results, err := a.ToolInvoker.Invoke(ctx, plan)
-	if err != nil {
-		return model.Message{}, err
-	}
+	var msg model.Message
+	for step := 0; step < maxPlanChain; step++ {
+		results, err := a.ToolInvoker.Invoke(ctx, plan)
+		if err != nil {
+			return model.Message{}, err
+		}
 
-	msg, err := a.Composer.Compose(ctx, plan, results)
-	if err != nil {
-		return model.Message{}, err
-	}
+		msg, err = a.Composer.Compose(ctx, plan, results)
+		if err != nil {
+			return model.Message{}, err
+		}
 
-	if msg.Role == "" {
-		msg.Role = model.RoleAssistant
-	}
-	if msg.Timestamp.IsZero() {
-		msg.Timestamp = time.Now()
-	}
+		if msg.Role == "" {
+			msg.Role = model.RoleAssistant
+		}
+		if msg.Timestamp.IsZero() {
+			msg.Timestamp = time.Now()
+		}
 
-	if a.Memory != nil {
-		a.Memory.RecordTurn(ctx, input.Event.SessionID, input.Event.Timestamp, input.Event.Content, msg)
+		if a.Memory != nil {
+			a.Memory.RecordTurn(ctx, input.Event.SessionID, model.Message{
+				Role:      model.RoleUser,
+				Content:   input.Event.Content,
+				Timestamp: input.Event.Timestamp,
+			}, msg)
+		}
+
+		if plan.Next == nil {
+			break
+		}
+		plan = *plan.Next
 	}
 
 	return msg, nil

@@ -11,7 +11,7 @@ import (
 
 // Memory captures how agents persist turns and load associative memories.
 type Memory interface {
-	RecordTurn(ctx context.Context, sessionID string, timestamp time.Time, userContent string, assistant model.Message)
+	RecordTurn(ctx context.Context, sessionID string, user model.Message, assistant model.Message)
 	Load(ctx context.Context, sessionID string) MemoryContext
 }
 
@@ -28,18 +28,12 @@ type MemoryContext struct {
 	FullConversations []string
 }
 
-func (m MemoryAdapter) RecordTurn(ctx context.Context, sessionID string, timestamp time.Time, userContent string, assistant model.Message) {
+func (m MemoryAdapter) RecordTurn(ctx context.Context, sessionID string, user model.Message, assistant model.Message) {
 	if m.Store == nil {
 		return
 	}
 
-	userMsg := model.Message{
-		Role:      model.RoleUser,
-		Content:   userContent,
-		Timestamp: timestamp,
-	}
-
-	userEntry := formatMemoryLine(sessionID, userMsg)
+	userEntry := formatMemoryLine(sessionID, user)
 	replyEntry := formatMemoryLine(sessionID, assistant)
 
 	appendLayer(ctx, m.Store, memory.LayerFullConversations, userEntry, replyEntry)
