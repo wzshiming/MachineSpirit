@@ -8,6 +8,7 @@ type Role string
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
+	RoleSystem    Role = "system"
 )
 
 // Event is an inbound channel event that should be routed to a session.
