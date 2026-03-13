@@ -26,8 +26,18 @@ type Plan struct {
 	ToolCalls []ToolCall
 }
 
+// ToolKind indicates which subsystem should execute the tool.
+type ToolKind string
+
+const (
+	ToolKindSkill   ToolKind = "skill"
+	ToolKindMCP     ToolKind = "mcp"
+	ToolKindBuiltin ToolKind = "builtin"
+)
+
 // ToolCall represents a requested tool invocation.
 type ToolCall struct {
+	Kind    ToolKind
 	Name    string
 	Payload map[string]any
 }

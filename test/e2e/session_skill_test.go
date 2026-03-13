@@ -86,6 +86,7 @@ func (skillPlanner) Plan(_ context.Context, input agent.Input) (agent.Plan, erro
 		Summary: input.Event.Content,
 		ToolCalls: []agent.ToolCall{
 			{
+				Kind: agent.ToolKindSkill,
 				Name: "echo",
 				Payload: map[string]any{
 					"text": input.Event.Content,
