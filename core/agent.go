@@ -1,0 +1,133 @@
+package core
+
+import (
+	"context"
+	"strings"
+	"time"
+)
+
+// Agent consumes session context and produces a reply message.
+type Agent interface {
+	Respond(ctx context.Context, input AgentInput) (Message, error)
+}
+
+// AgentInput carries the inbound event and current transcript state.
+type AgentInput struct {
+	Event      Event
+	Transcript []Message
+}
+
+// Plan holds the high-level intent and tool calls for a turn.
+type Plan struct {
+	Summary   string
+	ToolCalls []ToolCall
+}
+
+// ToolCall represents a requested tool invocation.
+type ToolCall struct {
+	Name    string
+	Payload map[string]any
+}
+
+// ToolResult is the outcome of a tool invocation.
+type ToolResult struct {
+	Name   string
+	Output string
+	Err    error
+}
+
+// Planner produces a plan for the current turn.
+type Planner interface {
+	Plan(ctx context.Context, input AgentInput) (Plan, error)
+}
+
+// ToolInvoker executes tool calls described in the plan.
+type ToolInvoker interface {
+	Invoke(ctx context.Context, plan Plan) ([]ToolResult, error)
+}
+
+// Composer builds the assistant reply using the plan and tool results.
+type Composer interface {
+	Compose(ctx context.Context, plan Plan, results []ToolResult) (Message, error)
+}
+
+// AgentLoop wires planner, tool invoker, and composer into a single Agent.
+type AgentLoop struct {
+	Planner     Planner
+	ToolInvoker ToolInvoker
+	Composer    Composer
+}
+
+func (a AgentLoop) Respond(ctx context.Context, input AgentInput) (Message, error) {
+	plan, err := a.Planner.Plan(ctx, input)
+	if err != nil {
+		return Message{}, err
+	}
+
+	results, err := a.ToolInvoker.Invoke(ctx, plan)
+	if err != nil {
+		return Message{}, err
+	}
+
+	msg, err := a.Composer.Compose(ctx, plan, results)
+	if err != nil {
+		return Message{}, err
+	}
+
+	if msg.Role == "" {
+		msg.Role = RoleAssistant
+	}
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+	return msg, nil
+}
+
+// EchoPlanner turns the inbound message into a minimal plan.
+type EchoPlanner struct{}
+
+func (EchoPlanner) Plan(_ context.Context, input AgentInput) (Plan, error) {
+	content := strings.TrimSpace(input.Event.Content)
+	summary := content
+	if summary == "" {
+		summary = "acknowledge event"
+	}
+	return Plan{
+		Summary: summary,
+	}, nil
+}
+
+// NoopToolInvoker executes no tools but keeps the streaming contract intact.
+type NoopToolInvoker struct{}
+
+func (NoopToolInvoker) Invoke(_ context.Context, plan Plan) ([]ToolResult, error) {
+	results := make([]ToolResult, 0, len(plan.ToolCalls))
+	for _, call := range plan.ToolCalls {
+		results = append(results, ToolResult{Name: call.Name})
+	}
+	return results, nil
+}
+
+// SimpleComposer echoes the plan summary and any tool outputs.
+type SimpleComposer struct{}
+
+func (SimpleComposer) Compose(_ context.Context, plan Plan, results []ToolResult) (Message, error) {
+	var fragments []string
+	if plan.Summary != "" {
+		fragments = append(fragments, plan.Summary)
+	}
+	for _, res := range results {
+		if res.Output != "" {
+			fragments = append(fragments, res.Output)
+		}
+	}
+	content := strings.Join(fragments, "\n")
+	if content == "" {
+		content = "ok"
+	}
+	return Message{
+		Role:      RoleAssistant,
+		Content:   content,
+		Timestamp: time.Now(),
+	}, nil
+}
