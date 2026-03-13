@@ -40,25 +40,27 @@ func main() {
 	}
 
 	ctx := context.Background()
+	session := llm.NewSession(l, llm.SessionConfig{
+		SystemPrompt: "You are helpful",
+	})
 
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
 			if strings.HasPrefix(text, "/help") {
-				fmt.Println("Enter your message to chat with the LLM. Use /bye to exit.")
+				fmt.Println("Enter your message to chat with the LLM. Use /reset to start a new session, /bye to exit.")
+				return
+			}
+			if strings.HasPrefix(text, "/reset") {
+				session.Reset()
+				fmt.Println("Session cleared.")
 				return
 			}
 			if strings.HasPrefix(text, "/bye") {
 				fmt.Println("Goodbye!")
 				os.Exit(0)
 			}
-			env, err := l.Complete(ctx, llm.ChatRequest{
-				SystemPrompt: "You are helpful",
-				Transcript: []llm.Message{
-					{Role: llm.RoleAssistant, Content: "prior answer"},
-				},
-				Prompt: llm.Message{Role: llm.RoleUser, Content: text},
-			})
+			env, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: text})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
@@ -69,6 +71,7 @@ func main() {
 		func(in prompt.Document) []prompt.Suggest {
 			s := []prompt.Suggest{
 				{Text: "/help", Description: "Show the help message"},
+				{Text: "/reset", Description: "Clear the current session"},
 				{Text: "/bye", Description: "Exit the program"},
 			}
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
