@@ -23,6 +23,7 @@ type Manager struct {
 	sessions   map[string]*sessionState
 	agent      agent.Agent
 	mem        memory.Store
+	summarizer Summarizer
 	maxPending int
 	pruneAfter time.Duration
 	now        func() time.Time
@@ -68,6 +69,15 @@ func WithMemory(store memory.Store) Option {
 	}
 }
 
+// WithSummarizer sets a custom summarizer for memory entries.
+func WithSummarizer(s Summarizer) Option {
+	return func(m *Manager) {
+		if s != nil {
+			m.summarizer = s
+		}
+	}
+}
+
 func NewManager(agentImpl agent.Agent, opts ...Option) *Manager {
 	manager := &Manager{
 		sessions:   make(map[string]*sessionState),
@@ -75,6 +85,7 @@ func NewManager(agentImpl agent.Agent, opts ...Option) *Manager {
 		maxPending: 4,
 		pruneAfter: 30 * time.Minute,
 		now:        time.Now,
+		summarizer: SimpleSummarizer{},
 	}
 	if manager.agent == nil {
 		manager.agent = agent.Loop{
@@ -280,6 +291,16 @@ func (m *Manager) persistMemory(ctx context.Context, sessionID string, user mode
 			recent = recent[len(recent)-recentMemoryLimit:]
 		}
 		_ = m.mem.Write(ctx, memory.LayerRecent, recent)
+	}
+
+	// Append a discussion summary
+	summary := m.summarizer.Summarize(user, reply)
+	if strings.TrimSpace(summary) != "" {
+		summaries, err := m.mem.Read(ctx, memory.LayerDailySummaries)
+		if err == nil {
+			summaries = append(summaries, summary)
+			_ = m.mem.Write(ctx, memory.LayerDailySummaries, summaries)
+		}
 	}
 }
 

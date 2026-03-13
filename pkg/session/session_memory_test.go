@@ -44,6 +44,11 @@ func TestSessionPersistsMemoryLayers(t *testing.T) {
 	if len(recent) != 2 {
 		t.Fatalf("expected 2 entries in recent, got %d", len(recent))
 	}
+
+	summaries := store.data[memory.LayerDailySummaries]
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 summary entry, got %d", len(summaries))
+	}
 }
 
 type stubMemoryStore struct {
