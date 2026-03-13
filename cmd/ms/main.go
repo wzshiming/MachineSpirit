@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/model"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
@@ -27,18 +25,19 @@ type providerConfig struct {
 func main() {
 	cfg := parseFlags()
 
-	provider, err := buildProvider(cfg)
+	agentImpl, err := llm.NewAgent(llm.Config{
+		Provider:     cfg.Name,
+		Model:        cfg.Model,
+		APIKey:       cfg.APIKey,
+		BaseURL:      cfg.BaseURL,
+		SystemPrompt: cfg.System,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	agent := llm.Agent{
-		Provider:     provider,
-		SystemPrompt: cfg.System,
-	}
-
-	manager := session.NewManager(agent)
+	manager := session.NewManager(agentImpl)
 
 	ctx := context.Background()
 	scanner := bufio.NewScanner(os.Stdin)
@@ -90,31 +89,4 @@ func parseFlags() providerConfig {
 		}
 	}
 	return cfg
-}
-
-func buildProvider(cfg providerConfig) (llm.Provider, error) {
-	switch strings.ToLower(cfg.Name) {
-	case "openai":
-		client := llm.NewOpenAIClient(cfg.APIKey, cfg.BaseURL)
-		modelName := cfg.Model
-		if modelName == "" {
-			modelName = "gpt-4.1-mini"
-		}
-		return llm.OpenAIProvider{
-			Client: client,
-			Model:  modelName,
-		}, nil
-	case "anthropic":
-		client := llm.NewAnthropicClient(cfg.APIKey, cfg.BaseURL)
-		modelName := cfg.Model
-		if modelName == "" {
-			modelName = "claude-3-7-sonnet-latest"
-		}
-		return llm.AnthropicProvider{
-			Client: client,
-			Model:  anthropic.Model(modelName),
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q", cfg.Name)
-	}
 }
