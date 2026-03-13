@@ -8,25 +8,20 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
-
-	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
-// OpenAIProvider implements Provider using OpenAI chat completions.
-type OpenAIProvider struct {
+// openAIProvider implements Provider using OpenAI chat completions.
+type openAIProvider struct {
 	Client *openai.Client
 	Model  shared.ChatModel
 }
 
-func (p OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (model.Message, error) {
+func (p openAIProvider) Complete(ctx context.Context, req ChatRequest) (Message, error) {
 	if p.Client == nil {
-		return model.Message{}, errors.New("openai client is required")
+		return Message{}, errors.New("openai client is required")
 	}
 
 	modelName := p.Model
-	if modelName == "" {
-		modelName = shared.ChatModelGPT4_1Mini
-	}
 
 	var messages []openai.ChatCompletionMessageParamUnion
 	if req.SystemPrompt != "" {
@@ -41,7 +36,7 @@ func (p OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (model.Me
 		messages = append(messages, param)
 	}
 	if len(messages) == 0 {
-		return model.Message{}, errors.New("no messages to send")
+		return Message{}, errors.New("no messages to send")
 	}
 
 	resp, err := p.Client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
@@ -49,10 +44,10 @@ func (p OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (model.Me
 		Messages: messages,
 	})
 	if err != nil {
-		return model.Message{}, err
+		return Message{}, err
 	}
 	if len(resp.Choices) == 0 {
-		return model.Message{}, errors.New("no choices returned from openai")
+		return Message{}, errors.New("no choices returned from openai")
 	}
 
 	choice := resp.Choices[0]
@@ -61,28 +56,28 @@ func (p OpenAIProvider) Complete(ctx context.Context, req ChatRequest) (model.Me
 		timestamp = time.Unix(resp.Created, 0)
 	}
 
-	return model.Message{
-		Role:      model.RoleAssistant,
+	return Message{
+		Role:      RoleAssistant,
 		Content:   choice.Message.Content,
 		Timestamp: timestamp,
 	}, nil
 }
 
-func toOpenAIMessage(msg model.Message) (openai.ChatCompletionMessageParamUnion, bool) {
+func toOpenAIMessage(msg Message) (openai.ChatCompletionMessageParamUnion, bool) {
 	switch msg.Role {
-	case model.RoleAssistant:
+	case RoleAssistant:
 		return openai.ChatCompletionMessageParamOfAssistant(msg.Content), true
-	case model.RoleUser:
+	case RoleUser:
 		return openai.UserMessage(msg.Content), true
-	case model.RoleSystem:
+	case RoleSystem:
 		return openai.SystemMessage(msg.Content), true
 	default:
 		return openai.ChatCompletionMessageParamUnion{}, false
 	}
 }
 
-// NewOpenAIClient builds a client with the provided API key and optional base URL.
-func NewOpenAIClient(apiKey string, baseURL string) *openai.Client {
+// newOpenAIClient builds a client with the provided API key and optional base URL.
+func newOpenAIClient(apiKey string, baseURL string) *openai.Client {
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))

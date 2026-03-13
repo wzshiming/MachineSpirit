@@ -1,92 +1,79 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/c-bata/go-prompt"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
-	"github.com/wzshiming/MachineSpirit/pkg/model"
-	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
-type providerConfig struct {
+var (
 	Name    string
 	Model   string
 	APIKey  string
 	BaseURL string
-	System  string
+)
+
+func init() {
+	flag.StringVar(&Name, "provider", "openai", "LLM provider: openai or anthropic")
+	flag.StringVar(&Model, "model", "", "Model name (optional, provider default used if empty)")
+	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
+	flag.Parse()
 }
 
 func main() {
-	cfg := parseFlags()
 
-	agentImpl, err := llm.NewAgent(llm.Config{
-		Provider:     cfg.Name,
-		Model:        cfg.Model,
-		APIKey:       cfg.APIKey,
-		BaseURL:      cfg.BaseURL,
-		SystemPrompt: cfg.System,
-	})
+	l, err := llm.NewLLM(
+		llm.WithProvider(Name),
+		llm.WithModel(Model),
+		llm.WithAPIKey(APIKey),
+		llm.WithBaseURL(BaseURL),
+	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	manager := session.NewManager(agentImpl)
-
 	ctx := context.Background()
-	scanner := bufio.NewScanner(os.Stdin)
 
-	for {
-		if !scanner.Scan() {
-			break
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" {
-			continue
-		}
+	p := prompt.New(
+		func(text string) {
+			text = strings.TrimSpace(text)
+			if strings.HasPrefix(text, "/help") {
+				fmt.Println("Enter your message to chat with the LLM. Use /bye to exit.")
+				return
+			}
+			if strings.HasPrefix(text, "/bye") {
+				fmt.Println("Goodbye!")
+				os.Exit(0)
+			}
+			env, err := l.Complete(ctx, llm.ChatRequest{
+				SystemPrompt: "You are helpful",
+				Transcript: []llm.Message{
+					{Role: llm.RoleAssistant, Content: "prior answer"},
+				},
+				Prompt: llm.Message{Role: llm.RoleUser, Content: text},
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
 
-		env, err := manager.HandleEvent(ctx, model.Event{
-			SessionID: "cli",
-			Content:   text,
-			Timestamp: time.Now(),
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		for _, msg := range env.Messages {
-			fmt.Println(msg.Content)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "read error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func parseFlags() providerConfig {
-	var cfg providerConfig
-	flag.StringVar(&cfg.Name, "provider", "openai", "LLM provider: openai or anthropic")
-	flag.StringVar(&cfg.Model, "model", "", "Model name (optional, provider default used if empty)")
-	flag.StringVar(&cfg.APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
-	flag.StringVar(&cfg.BaseURL, "base-url", "", "Optional base URL for the provider API")
-	flag.StringVar(&cfg.System, "system", "", "Optional system prompt")
-	flag.Parse()
-
-	if cfg.APIKey == "" {
-		switch cfg.Name {
-		case "openai":
-			cfg.APIKey = os.Getenv("OPENAI_API_KEY")
-		case "anthropic":
-			cfg.APIKey = os.Getenv("ANTHROPIC_API_KEY")
-		}
-	}
-	return cfg
+			fmt.Println(env.Content)
+		},
+		func(in prompt.Document) []prompt.Suggest {
+			s := []prompt.Suggest{
+				{Text: "/help", Description: "Show the help message"},
+				{Text: "/bye", Description: "Exit the program"},
+			}
+			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
+		},
+		prompt.OptionPrefix("> "),
+	)
+	p.Run()
 }

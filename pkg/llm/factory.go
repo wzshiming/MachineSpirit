@@ -6,55 +6,71 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
-
-	"github.com/wzshiming/MachineSpirit/pkg/agent"
 )
 
 // Config describes how to construct an LLM provider and agent.
-type Config struct {
-	Provider     string // "openai" or "anthropic"
-	Model        string
-	APIKey       string
-	BaseURL      string
-	SystemPrompt string
+type options struct {
+	Provider string // "openai" or "anthropic"
+	Model    string
+	APIKey   string
+	BaseURL  string
 }
 
-// NewProvider builds a Provider based on the supplied configuration.
-func NewProvider(cfg Config) (Provider, error) {
+type opt func(*options)
+
+func WithProvider(provider string) opt {
+	return func(o *options) {
+		o.Provider = provider
+	}
+}
+
+func WithModel(model string) opt {
+	return func(o *options) {
+		o.Model = model
+	}
+}
+
+func WithAPIKey(apiKey string) opt {
+	return func(o *options) {
+		o.APIKey = apiKey
+	}
+}
+
+func WithBaseURL(baseURL string) opt {
+	return func(o *options) {
+		o.BaseURL = baseURL
+	}
+}
+
+// NewLLM builds an LLM based on the supplied configuration.
+func NewLLM(opts ...opt) (LLM, error) {
+	var cfg options
+	for _, apply := range opts {
+		apply(&cfg)
+	}
+
 	switch strings.ToLower(cfg.Provider) {
 	case "", "openai":
-		client := NewOpenAIClient(cfg.APIKey, cfg.BaseURL)
+		client := newOpenAIClient(cfg.APIKey, cfg.BaseURL)
 		modelName := cfg.Model
 		if modelName == "" {
-			modelName = string(openai.ChatModelGPT4_1Mini)
+			modelName = string(openai.ChatModelGPT5)
 		}
-		return OpenAIProvider{
+		return openAIProvider{
 			Client: client,
 			Model:  openai.ChatModel(modelName),
 		}, nil
 	case "anthropic":
-		client := NewAnthropicClient(cfg.APIKey, cfg.BaseURL)
+		client := newAnthropicClient(cfg.APIKey, cfg.BaseURL)
 		modelName := cfg.Model
 		if modelName == "" {
-			modelName = string(anthropic.ModelClaude3_7SonnetLatest)
+			modelName = string(anthropic.ModelClaudeOpus4_5)
 		}
-		return AnthropicProvider{
+		return anthropicProvider{
 			Client: client,
 			Model:  anthropic.Model(modelName),
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", cfg.Provider)
 	}
-}
-
-// NewAgent constructs an llm.Agent using the configured provider and system prompt.
-func NewAgent(cfg Config) (agent.Agent, error) {
-	provider, err := NewProvider(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return Agent{
-		Provider:     provider,
-		SystemPrompt: cfg.SystemPrompt,
-	}, nil
 }
