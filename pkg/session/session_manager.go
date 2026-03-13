@@ -3,10 +3,12 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/memory"
 	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
@@ -20,6 +22,7 @@ type Manager struct {
 	mu         sync.Mutex
 	sessions   map[string]*sessionState
 	agent      agent.Agent
+	mem        memory.Store
 	maxPending int
 	pruneAfter time.Duration
 	now        func() time.Time
@@ -55,6 +58,13 @@ func WithClock(now func() time.Time) Option {
 		if now != nil {
 			m.now = now
 		}
+	}
+}
+
+// WithMemory attaches a memory store for transcript persistence.
+func WithMemory(store memory.Store) Option {
+	return func(m *Manager) {
+		m.mem = store
 	}
 }
 
@@ -160,6 +170,10 @@ func (m *Manager) HandleEvent(ctx context.Context, event model.Event) (model.Res
 	session.transcript = append(session.transcript, reply)
 	session.lastActive = reply.Timestamp
 
+	if m.mem != nil {
+		m.persistMemory(ctx, event.SessionID, userMessage, reply)
+	}
+
 	envelope.Messages = []model.Message{reply}
 	envelope.Presence = append(envelope.Presence, model.PresenceUpdate{
 		Status: model.PresenceActive,
@@ -243,4 +257,33 @@ func (m *Manager) ensureSession(id string, now time.Time) *sessionState {
 		m.sessions[id] = session
 	}
 	return session
+}
+
+const recentMemoryLimit = 50
+
+func (m *Manager) persistMemory(ctx context.Context, sessionID string, user model.Message, reply model.Message) {
+	userEntry := formatMemoryLine(sessionID, user)
+	replyEntry := formatMemoryLine(sessionID, reply)
+
+	// Append to full conversation log
+	full, err := m.mem.Read(ctx, memory.LayerFullConversations)
+	if err == nil {
+		full = append(full, userEntry, replyEntry)
+		_ = m.mem.Write(ctx, memory.LayerFullConversations, full)
+	}
+
+	// Maintain capped recent memory
+	recent, err := m.mem.Read(ctx, memory.LayerRecent)
+	if err == nil {
+		recent = append(recent, userEntry, replyEntry)
+		if len(recent) > recentMemoryLimit {
+			recent = recent[len(recent)-recentMemoryLimit:]
+		}
+		_ = m.mem.Write(ctx, memory.LayerRecent, recent)
+	}
+}
+
+func formatMemoryLine(sessionID string, msg model.Message) string {
+	ts := msg.Timestamp.UTC().Format(time.RFC3339)
+	return sessionID + "|" + ts + "|" + string(msg.Role) + "|" + strings.ReplaceAll(msg.Content, "\n", " ")
 }
