@@ -43,16 +43,54 @@ func main() {
 	session := llm.NewSession(l, llm.SessionConfig{
 		SystemPrompt: "You are helpful",
 	})
+	var flightContext struct {
+		lastQuery string
+		lastPick  string
+	}
+
+	agent := llm.NewAgent(session, llm.AgentConfig{
+		MaxSteps: 8,
+		Tools: []llm.Tool{
+			{
+				Name:        "search_flights",
+				Description: "Search flights given route and date details",
+				Fn: func(ctx context.Context, input string) (string, error) {
+					flightContext.lastQuery = input
+					results := fmt.Sprintf("Options for %s: 08:00 $500; 12:00 $450; 18:00 $520", input)
+					return results, nil
+				},
+			},
+			{
+				Name:        "reserve_flight",
+				Description: "Reserve a flight based on a chosen option",
+				Fn: func(ctx context.Context, input string) (string, error) {
+					choice := strings.TrimSpace(input)
+					if choice == "" {
+						choice = flightContext.lastQuery
+					}
+					if choice == "" {
+						return "No prior search. Please provide route/date to reserve.", nil
+					}
+					flightContext.lastPick = choice
+					return fmt.Sprintf("Reservation placed for: %s", choice), nil
+				},
+			},
+		},
+	})
 
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
 			if strings.HasPrefix(text, "/help") {
-				fmt.Println("Enter your message to chat with the LLM. Use /reset to start a new session, /bye to exit.")
+				fmt.Println("Chat with the agent. Use /reset to start a new session, /bye to exit.")
 				return
 			}
 			if strings.HasPrefix(text, "/reset") {
 				session.Reset()
+				flightContext = struct {
+					lastQuery string
+					lastPick  string
+				}{}
 				fmt.Println("Session cleared.")
 				return
 			}
@@ -60,7 +98,7 @@ func main() {
 				fmt.Println("Goodbye!")
 				os.Exit(0)
 			}
-			env, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: text})
+			env, err := agent.Run(ctx, text)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
