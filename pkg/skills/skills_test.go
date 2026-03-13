@@ -2,6 +2,9 @@ package skills
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,5 +57,39 @@ func TestInvokerResolvesAndRunsSkill(t *testing.T) {
 	}
 	if out != "hello" {
 		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+func TestLoadDirBuildsRegistryFromMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	file1 := filepath.Join(dir, "alpha.md")
+	file2 := filepath.Join(dir, "beta.md")
+
+	if err := os.WriteFile(file1, []byte("# Alpha\nDo alpha things"), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(file2, []byte("Beta description\nMore"), 0o644); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+
+	reg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir returned error: %v", err)
+	}
+
+	alpha, ok := reg.Get("alpha")
+	if !ok {
+		t.Fatalf("expected alpha skill present")
+	}
+	if alpha.Description() != "Alpha" {
+		t.Fatalf("unexpected description: %q", alpha.Description())
+	}
+	out, err := alpha.Invoke(context.Background(), nil)
+	if err != nil || !strings.Contains(out, "Alpha") {
+		t.Fatalf("unexpected invoke output: %q, err: %v", out, err)
+	}
+
+	if _, ok := reg.Get("beta"); !ok {
+		t.Fatalf("expected beta skill present")
 	}
 }
