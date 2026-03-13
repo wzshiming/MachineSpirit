@@ -41,16 +41,26 @@ func main() {
 
 	ctx := context.Background()
 	session := llm.NewSession(l, llm.SessionConfig{
-		SystemPrompt: "You are a helpful travel assistant agent with access to flight booking tools.",
+		SystemPrompt: "You are a helpful travel assistant agent with access to flight booking tools and skills.",
 	})
 
-	// Create agent with flight booking tools
+	// Create tools
+	searchTool := agent.NewFlightSearchTool()
+	reservationTool := agent.NewFlightReservationTool()
+
+	// Create skills registry and register high-level skills
+	skills := agent.NewSkillRegistry()
+	flightBookingSkill := agent.NewFlightBookingSkill(searchTool, reservationTool)
+	skills.Register(flightBookingSkill)
+
+	// Create agent with both tools and skills
 	ag, err := agent.NewAgent(agent.Config{
 		Session: session,
 		Tools: []agent.Tool{
-			agent.NewFlightSearchTool(),
-			agent.NewFlightReservationTool(),
+			searchTool,
+			reservationTool,
 		},
+		Skills: skills,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -61,7 +71,9 @@ func main() {
 	ag.Memory().Store("preferred_airline", "Delta Airlines")
 	ag.Memory().Store("user_name", "John Doe")
 
-	fmt.Println("Agent mode enabled. The assistant can use tools to help you book flights.")
+	fmt.Println("Agent mode enabled with Skills support.")
+	fmt.Println("Available Skills: flight_booking (end-to-end booking)")
+	fmt.Println("Available Tools: flight_search, flight_reservation")
 	fmt.Println("Example preferences stored: preferred_airline=Delta Airlines, user_name=John Doe")
 	fmt.Println()
 

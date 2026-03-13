@@ -14,6 +14,7 @@ type Agent struct {
 	session    *llm.Session
 	memory     Memory
 	tools      map[string]Tool
+	invoker    *MultiToolInvoker
 	maxRetries int
 }
 
@@ -25,6 +26,8 @@ type Config struct {
 	Memory Memory
 	// Tools are the actions available to the agent.
 	Tools []Tool
+	// Skills are high-level capabilities. If nil, an empty registry is created.
+	Skills *SkillRegistry
 	// MaxRetries is the maximum number of retry attempts on tool failure (default: 3).
 	MaxRetries int
 }
@@ -50,10 +53,19 @@ func NewAgent(cfg Config) (*Agent, error) {
 		tools[tool.Name()] = tool
 	}
 
+	skills := cfg.Skills
+	if skills == nil {
+		skills = NewSkillRegistry()
+	}
+
+	// Create multi-tool invoker for routing between tools and skills
+	invoker := NewMultiToolInvoker(tools, skills)
+
 	return &Agent{
 		session:    cfg.Session,
 		memory:     memory,
 		tools:      tools,
+		invoker:    invoker,
 		maxRetries: maxRetries,
 	}, nil
 }
@@ -129,16 +141,10 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 }
 
 // executeTool executes a single tool call and returns the result.
+// It uses the MultiToolInvoker to automatically route to tools or skills.
 func (a *Agent) executeTool(ctx context.Context, call ToolCall) ToolResult {
-	tool, exists := a.tools[call.ToolName]
-	if !exists {
-		return ToolResult{
-			ToolName: call.ToolName,
-			Error:    fmt.Sprintf("tool %q not found", call.ToolName),
-		}
-	}
-
-	output, err := tool.Execute(ctx, call.Input)
+	// Use invoker to automatically detect and route to tool or skill
+	_, output, err := a.invoker.InvokeAuto(ctx, call.ToolName, call.Input)
 	if err != nil {
 		return ToolResult{
 			ToolName: call.ToolName,
@@ -185,7 +191,7 @@ func (a *Agent) parseToolCalls(response string) []ToolCall {
 func (a *Agent) buildPrompt(userInput, memoryContext string) string {
 	var sb strings.Builder
 
-	sb.WriteString("You are an intelligent agent that can use tools to accomplish tasks.\n\n")
+	sb.WriteString("You are an intelligent agent that can use tools and skills to accomplish tasks.\n\n")
 
 	if memoryContext != "" {
 		sb.WriteString("## Relevant Context from Memory:\n")
@@ -193,14 +199,31 @@ func (a *Agent) buildPrompt(userInput, memoryContext string) string {
 		sb.WriteString("\n\n")
 	}
 
+	// List available skills (higher-level capabilities)
+	skills := a.invoker.GetSkillInvoker().List()
+	if len(skills) > 0 {
+		sb.WriteString("## Available Skills (High-level capabilities):\n")
+		for _, skillName := range skills {
+			if skill, err := a.invoker.GetSkillInvoker().registry.Get(skillName); err == nil {
+				sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Name(), skill.Description()))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// List available tools (low-level operations)
 	if len(a.tools) > 0 {
-		sb.WriteString("## Available Tools:\n")
+		sb.WriteString("## Available Tools (Low-level operations):\n")
 		for _, tool := range a.tools {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 		}
 		sb.WriteString("\n")
-		sb.WriteString("To use a tool, respond with: <tool_call>{\"tool_name\": \"tool_name\", \"input\": {...}}</tool_call>\n")
-		sb.WriteString("You can make multiple tool calls in a single response.\n\n")
+	}
+
+	if len(skills) > 0 || len(a.tools) > 0 {
+		sb.WriteString("To use a tool or skill, respond with: <tool_call>{\"tool_name\": \"name\", \"input\": {...}}</tool_call>\n")
+		sb.WriteString("You can make multiple tool calls in a single response.\n")
+		sb.WriteString("Prefer using skills for complex, multi-step operations when available.\n\n")
 	}
 
 	sb.WriteString("## User Request:\n")
@@ -253,4 +276,24 @@ func (a *Agent) Memory() Memory {
 // RegisterTool adds a tool to the agent's available tools.
 func (a *Agent) RegisterTool(tool Tool) {
 	a.tools[tool.Name()] = tool
+	// Update invoker with new tool
+	a.invoker = NewMultiToolInvoker(a.tools, a.invoker.GetSkillInvoker().registry)
+}
+
+// RegisterSkill adds a skill to the agent's available skills.
+func (a *Agent) RegisterSkill(skill Skill) error {
+	if err := a.invoker.GetSkillInvoker().registry.Register(skill); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetSkillRegistry returns the agent's skill registry.
+func (a *Agent) GetSkillRegistry() *SkillRegistry {
+	return a.invoker.GetSkillInvoker().registry
+}
+
+// GetInvoker returns the agent's multi-tool invoker.
+func (a *Agent) GetInvoker() *MultiToolInvoker {
+	return a.invoker
 }

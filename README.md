@@ -9,6 +9,7 @@ MachineSpirit is a Go-based framework for building intelligent agents with LLM-p
 - **LLM Integration**: Support for multiple LLM providers (OpenAI, Anthropic)
 - **Stateful Sessions**: Maintain conversation history across multiple interactions
 - **Agent System**: Multi-step reasoning with tool calling and memory
+- **Skills Framework**: High-level, composable capabilities that extend tools
 - **Memory Management**: Store and retrieve facts for context-aware decision-making
 - **Tool Framework**: Extensible system for adding custom actions
 - **Interactive CLI**: Ready-to-use command-line interface
@@ -112,11 +113,13 @@ func main() {
 go run ./cmd/ms -provider openai -api-key YOUR_KEY
 ```
 
-### Agent CLI (with tools)
+### Agent CLI (with tools and skills)
 
 ```bash
 go run ./cmd/agent -provider openai -api-key YOUR_KEY
 ```
+
+The agent CLI demonstrates both low-level tools and high-level skills for flight booking.
 
 #### CLI Commands
 
@@ -137,9 +140,10 @@ MachineSpirit/
 │   └── agent/       # Agent CLI with tools
 ├── pkg/
 │   ├── llm/         # LLM provider abstraction and sessions
-│   └── agent/       # Agent system with tools and memory
+│   └── agent/       # Agent system with tools, skills, and memory
 └── docs/
-    └── agent.md     # Detailed agent documentation
+    ├── agent.md     # Detailed agent documentation
+    └── skills.md    # Skills system documentation
 ```
 
 ### LLM Package
@@ -150,10 +154,13 @@ MachineSpirit/
 
 ### Agent Package
 
-- **Agent**: Main orchestration logic
-- **Tool Interface**: Extensible action system
+- **Agent**: Main orchestration logic with skill/tool routing
+- **Tool Interface**: Extensible action system for low-level operations
+- **Skill Interface**: High-level, composable capabilities
 - **Memory**: Fact storage and retrieval
+- **MultiToolInvoker**: Smart router between skills and tools
 - **Example Tools**: Flight search and reservation
+- **Example Skills**: End-to-end flight booking
 
 ## Creating Custom Tools
 
@@ -246,6 +253,7 @@ If any step fails, the agent replans or asks for clarification.
 ## Documentation
 
 - [Agent System Documentation](docs/agent.md) - Detailed agent architecture and usage
+- [Skills System Documentation](docs/skills.md) - Skills framework and best practices
 
 ## Development
 
