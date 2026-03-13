@@ -1,4 +1,4 @@
-package core
+package llm
 
 import (
 	"context"
@@ -8,22 +8,24 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+
+	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
-// AnthropicProvider implements ChatProvider using the Anthropic Messages API.
+// AnthropicProvider implements Provider using the Anthropic Messages API.
 type AnthropicProvider struct {
 	Client *anthropic.Client
 	Model  anthropic.Model
 }
 
-func (p AnthropicProvider) Complete(ctx context.Context, req ChatRequest) (Message, error) {
+func (p AnthropicProvider) Complete(ctx context.Context, req ChatRequest) (model.Message, error) {
 	if p.Client == nil {
-		return Message{}, errors.New("anthropic client is required")
+		return model.Message{}, errors.New("anthropic client is required")
 	}
 
-	model := p.Model
-	if model == "" {
-		model = anthropic.ModelClaude3_7SonnetLatest
+	modelName := p.Model
+	if modelName == "" {
+		modelName = anthropic.ModelClaude3_7SonnetLatest
 	}
 
 	var messages []anthropic.MessageParam
@@ -36,7 +38,7 @@ func (p AnthropicProvider) Complete(ctx context.Context, req ChatRequest) (Messa
 		messages = append(messages, param)
 	}
 	if len(messages) == 0 {
-		return Message{}, errors.New("no messages to send")
+		return model.Message{}, errors.New("no messages to send")
 	}
 
 	var systemBlocks []anthropic.TextBlockParam
@@ -48,13 +50,13 @@ func (p AnthropicProvider) Complete(ctx context.Context, req ChatRequest) (Messa
 	}
 
 	resp, err := p.Client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     model,
+		Model:     modelName,
 		MaxTokens: 1024,
 		Messages:  messages,
 		System:    systemBlocks,
 	})
 	if err != nil {
-		return Message{}, err
+		return model.Message{}, err
 	}
 	content := ""
 	for _, block := range resp.Content {
@@ -68,18 +70,18 @@ func (p AnthropicProvider) Complete(ctx context.Context, req ChatRequest) (Messa
 		}
 	}
 
-	return Message{
-		Role:      RoleAssistant,
+	return model.Message{
+		Role:      model.RoleAssistant,
 		Content:   content,
 		Timestamp: time.Now(),
 	}, nil
 }
 
-func toAnthropicMessage(msg Message) (anthropic.MessageParam, bool) {
+func toAnthropicMessage(msg model.Message) (anthropic.MessageParam, bool) {
 	switch msg.Role {
-	case RoleUser:
+	case model.RoleUser:
 		return anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)), true
-	case RoleAssistant:
+	case model.RoleAssistant:
 		return anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)), true
 	default:
 		return anthropic.MessageParam{}, false

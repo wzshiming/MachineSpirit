@@ -1,10 +1,13 @@
-package core
+package session
 
 import (
 	"context"
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
 var (
@@ -13,10 +16,10 @@ var (
 	ErrSessionMissingID  = errors.New("session id required")
 )
 
-type SessionManager struct {
+type Manager struct {
 	mu         sync.Mutex
 	sessions   map[string]*sessionState
-	agent      Agent
+	agent      agent.Agent
 	maxPending int
 	pruneAfter time.Duration
 	now        func() time.Time
@@ -24,15 +27,15 @@ type SessionManager struct {
 
 type sessionState struct {
 	id         string
-	transcript []Message
+	transcript []model.Message
 	lastActive time.Time
 	pending    int
 }
 
-type Option func(m *SessionManager)
+type Option func(m *Manager)
 
 func WithMaxPending(limit int) Option {
-	return func(m *SessionManager) {
+	return func(m *Manager) {
 		if limit > 0 {
 			m.maxPending = limit
 		}
@@ -40,7 +43,7 @@ func WithMaxPending(limit int) Option {
 }
 
 func WithPruneAfter(d time.Duration) Option {
-	return func(m *SessionManager) {
+	return func(m *Manager) {
 		if d > 0 {
 			m.pruneAfter = d
 		}
@@ -48,26 +51,26 @@ func WithPruneAfter(d time.Duration) Option {
 }
 
 func WithClock(now func() time.Time) Option {
-	return func(m *SessionManager) {
+	return func(m *Manager) {
 		if now != nil {
 			m.now = now
 		}
 	}
 }
 
-func NewSessionManager(agent Agent, opts ...Option) *SessionManager {
-	manager := &SessionManager{
+func NewManager(agentImpl agent.Agent, opts ...Option) *Manager {
+	manager := &Manager{
 		sessions:   make(map[string]*sessionState),
-		agent:      agent,
+		agent:      agentImpl,
 		maxPending: 4,
 		pruneAfter: 30 * time.Minute,
 		now:        time.Now,
 	}
 	if manager.agent == nil {
-		manager.agent = AgentLoop{
-			Planner:     EchoPlanner{},
-			ToolInvoker: NoopToolInvoker{},
-			Composer:    SimpleComposer{},
+		manager.agent = agent.Loop{
+			Planner:     agent.EchoPlanner{},
+			ToolInvoker: agent.NoopToolInvoker{},
+			Composer:    agent.SimpleComposer{},
 		}
 	}
 	for _, opt := range opts {
@@ -77,8 +80,8 @@ func NewSessionManager(agent Agent, opts ...Option) *SessionManager {
 }
 
 // HandleEvent processes an inbound event, routing it through the agent loop and returning a response envelope.
-func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (ResponseEnvelope, error) {
-	var envelope ResponseEnvelope
+func (m *Manager) HandleEvent(ctx context.Context, event model.Event) (model.ResponseEnvelope, error) {
+	var envelope model.ResponseEnvelope
 	if event.SessionID == "" {
 		return envelope, ErrSessionMissingID
 	}
@@ -88,8 +91,8 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 		event.Timestamp = now
 	}
 
-	userMessage := Message{
-		Role:      RoleUser,
+	userMessage := model.Message{
+		Role:      model.RoleUser,
 		Content:   event.Content,
 		Timestamp: event.Timestamp,
 		Channel:   event.Channel,
@@ -101,7 +104,7 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 
 	if m.pruneAfter > 0 && now.Sub(session.lastActive) > m.pruneAfter {
 		m.mu.Unlock()
-		return ResponseEnvelope{
+		return model.ResponseEnvelope{
 			SessionID:  event.SessionID,
 			Dropped:    true,
 			DropReason: "session inactive",
@@ -110,7 +113,7 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 
 	if session.pending >= m.maxPending {
 		m.mu.Unlock()
-		return ResponseEnvelope{
+		return model.ResponseEnvelope{
 			SessionID:  event.SessionID,
 			Dropped:    true,
 			DropReason: "queue limit reached",
@@ -119,11 +122,11 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 
 	session.pending++
 	session.lastActive = now
-	presence := []PresenceUpdate{{Status: PresenceTyping, At: now}}
-	transcriptCopy := append([]Message(nil), session.transcript...)
+	presence := []model.PresenceUpdate{{Status: model.PresenceTyping, At: now}}
+	transcriptCopy := append([]model.Message(nil), session.transcript...)
 	m.mu.Unlock()
 
-	reply, err := m.agent.Respond(ctx, AgentInput{
+	reply, err := m.agent.Respond(ctx, agent.Input{
 		Event:      event,
 		Transcript: transcriptCopy,
 	})
@@ -138,8 +141,8 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 
 	if err != nil {
 		session.lastActive = m.now()
-		envelope.Presence = append(envelope.Presence, PresenceUpdate{
-			Status: PresenceActive,
+		envelope.Presence = append(envelope.Presence, model.PresenceUpdate{
+			Status: model.PresenceActive,
 			At:     session.lastActive,
 		})
 		envelope.Error = err.Error()
@@ -148,7 +151,7 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 	}
 
 	if reply.Role == "" {
-		reply.Role = RoleAssistant
+		reply.Role = model.RoleAssistant
 	}
 	if reply.Timestamp.IsZero() {
 		reply.Timestamp = m.now()
@@ -157,9 +160,9 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 	session.transcript = append(session.transcript, reply)
 	session.lastActive = reply.Timestamp
 
-	envelope.Messages = []Message{reply}
-	envelope.Presence = append(envelope.Presence, PresenceUpdate{
-		Status: PresenceActive,
+	envelope.Messages = []model.Message{reply}
+	envelope.Presence = append(envelope.Presence, model.PresenceUpdate{
+		Status: model.PresenceActive,
 		At:     session.lastActive,
 	})
 	envelope.TranscriptSize = len(session.transcript)
@@ -167,7 +170,7 @@ func (m *SessionManager) HandleEvent(ctx context.Context, event Event) (Response
 	return envelope, nil
 }
 
-func (m *SessionManager) PruneInactive() []string {
+func (m *Manager) PruneInactive() []string {
 	if m.pruneAfter <= 0 {
 		return nil
 	}
@@ -190,7 +193,7 @@ func (m *SessionManager) PruneInactive() []string {
 }
 
 // StartPruneLoop launches a goroutine that periodically prunes inactive sessions until ctx is cancelled.
-func (m *SessionManager) StartPruneLoop(ctx context.Context, interval time.Duration) {
+func (m *Manager) StartPruneLoop(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = m.pruneAfter
 	}
@@ -212,17 +215,17 @@ func (m *SessionManager) StartPruneLoop(ctx context.Context, interval time.Durat
 	}()
 }
 
-func (m *SessionManager) Snapshot(sessionID string) (SessionSnapshot, bool) {
+func (m *Manager) Snapshot(sessionID string) (model.SessionSnapshot, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	session, ok := m.sessions[sessionID]
 	if !ok {
-		return SessionSnapshot{}, false
+		return model.SessionSnapshot{}, false
 	}
 
-	transcript := append([]Message(nil), session.transcript...)
-	return SessionSnapshot{
+	transcript := append([]model.Message(nil), session.transcript...)
+	return model.SessionSnapshot{
 		ID:          sessionID,
 		Transcript:  transcript,
 		LastActive:  session.lastActive,
@@ -230,7 +233,7 @@ func (m *SessionManager) Snapshot(sessionID string) (SessionSnapshot, bool) {
 	}, true
 }
 
-func (m *SessionManager) ensureSession(id string, now time.Time) *sessionState {
+func (m *Manager) ensureSession(id string, now time.Time) *sessionState {
 	session := m.sessions[id]
 	if session == nil {
 		session = &sessionState{

@@ -1,4 +1,4 @@
-package core
+package session
 
 import (
 	"context"
@@ -6,12 +6,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
 func TestHandleEventCreatesSessionAndUpdatesTranscript(t *testing.T) {
-	manager := NewSessionManager(nil, WithMaxPending(2), WithPruneAfter(5*time.Minute))
+	manager := NewManager(nil, WithMaxPending(2), WithPruneAfter(5*time.Minute))
 
-	event := Event{
+	event := model.Event{
 		SessionID: "session-a",
 		Content:   "hello there",
 		Timestamp: time.Now(),
@@ -30,7 +33,7 @@ func TestHandleEventCreatesSessionAndUpdatesTranscript(t *testing.T) {
 	if len(envelope.Presence) != 2 {
 		t.Fatalf("expected typing and active presence updates, got %d", len(envelope.Presence))
 	}
-	if envelope.Presence[0].Status != PresenceTyping || envelope.Presence[1].Status != PresenceActive {
+	if envelope.Presence[0].Status != model.PresenceTyping || envelope.Presence[1].Status != model.PresenceActive {
 		t.Fatalf("unexpected presence sequence: %+v", envelope.Presence)
 	}
 
@@ -41,7 +44,7 @@ func TestHandleEventCreatesSessionAndUpdatesTranscript(t *testing.T) {
 	if len(snapshot.Transcript) != 2 {
 		t.Fatalf("expected transcript to hold user and assistant messages, got %d entries", len(snapshot.Transcript))
 	}
-	if snapshot.Transcript[0].Role != RoleUser || snapshot.Transcript[1].Role != RoleAssistant {
+	if snapshot.Transcript[0].Role != model.RoleUser || snapshot.Transcript[1].Role != model.RoleAssistant {
 		t.Fatalf("unexpected transcript roles: %+v", snapshot.Transcript)
 	}
 }
@@ -49,27 +52,27 @@ func TestHandleEventCreatesSessionAndUpdatesTranscript(t *testing.T) {
 func TestHandleEventDropsWhenOverloaded(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	agent := stubAgent{
-		respond: func(ctx context.Context, input AgentInput) (Message, error) {
+	agentImpl := stubAgent{
+		respond: func(ctx context.Context, input agent.Input) (model.Message, error) {
 			close(started)
 			<-release
-			return Message{Content: "done"}, nil
+			return model.Message{Content: "done"}, nil
 		},
 	}
 
-	manager := NewSessionManager(agent, WithMaxPending(1))
+	manager := NewManager(agentImpl, WithMaxPending(1))
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = manager.HandleEvent(ctx, Event{SessionID: "session-b", Content: "first", Timestamp: time.Now()})
+		_, _ = manager.HandleEvent(ctx, model.Event{SessionID: "session-b", Content: "first", Timestamp: time.Now()})
 	}()
 
 	<-started
 
-	envelope, err := manager.HandleEvent(ctx, Event{SessionID: "session-b", Content: "second", Timestamp: time.Now()})
+	envelope, err := manager.HandleEvent(ctx, model.Event{SessionID: "session-b", Content: "second", Timestamp: time.Now()})
 	if !errors.Is(err, ErrSessionOverloaded) {
 		t.Fatalf("expected ErrSessionOverloaded, got %v", err)
 	}
@@ -87,13 +90,13 @@ func TestPruneInactiveRemovesOldSessions(t *testing.T) {
 		return now
 	}
 
-	manager := NewSessionManager(stubAgent{
-		respond: func(ctx context.Context, input AgentInput) (Message, error) {
-			return Message{Content: "ok"}, nil
+	manager := NewManager(stubAgent{
+		respond: func(ctx context.Context, input agent.Input) (model.Message, error) {
+			return model.Message{Content: "ok"}, nil
 		},
 	}, WithPruneAfter(time.Minute), WithClock(clock))
 
-	_, err := manager.HandleEvent(context.Background(), Event{SessionID: "session-c", Content: "hello", Timestamp: now})
+	_, err := manager.HandleEvent(context.Background(), model.Event{SessionID: "session-c", Content: "hello", Timestamp: now})
 	if err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
@@ -110,9 +113,9 @@ func TestPruneInactiveRemovesOldSessions(t *testing.T) {
 }
 
 type stubAgent struct {
-	respond func(ctx context.Context, input AgentInput) (Message, error)
+	respond func(ctx context.Context, input agent.Input) (model.Message, error)
 }
 
-func (s stubAgent) Respond(ctx context.Context, input AgentInput) (Message, error) {
+func (s stubAgent) Respond(ctx context.Context, input agent.Input) (model.Message, error) {
 	return s.respond(ctx, input)
 }

@@ -1,20 +1,22 @@
-package core
+package agent
 
 import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
 // Agent consumes session context and produces a reply message.
 type Agent interface {
-	Respond(ctx context.Context, input AgentInput) (Message, error)
+	Respond(ctx context.Context, input Input) (model.Message, error)
 }
 
-// AgentInput carries the inbound event and current transcript state.
-type AgentInput struct {
-	Event      Event
-	Transcript []Message
+// Input carries the inbound event and current transcript state.
+type Input struct {
+	Event      model.Event
+	Transcript []model.Message
 }
 
 // Plan holds the high-level intent and tool calls for a turn.
@@ -38,7 +40,7 @@ type ToolResult struct {
 
 // Planner produces a plan for the current turn.
 type Planner interface {
-	Plan(ctx context.Context, input AgentInput) (Plan, error)
+	Plan(ctx context.Context, input Input) (Plan, error)
 }
 
 // ToolInvoker executes tool calls described in the plan.
@@ -48,34 +50,34 @@ type ToolInvoker interface {
 
 // Composer builds the assistant reply using the plan and tool results.
 type Composer interface {
-	Compose(ctx context.Context, plan Plan, results []ToolResult) (Message, error)
+	Compose(ctx context.Context, plan Plan, results []ToolResult) (model.Message, error)
 }
 
-// AgentLoop wires planner, tool invoker, and composer into a single Agent.
-type AgentLoop struct {
+// Loop wires planner, tool invoker, and composer into a single Agent.
+type Loop struct {
 	Planner     Planner
 	ToolInvoker ToolInvoker
 	Composer    Composer
 }
 
-func (a AgentLoop) Respond(ctx context.Context, input AgentInput) (Message, error) {
+func (a Loop) Respond(ctx context.Context, input Input) (model.Message, error) {
 	plan, err := a.Planner.Plan(ctx, input)
 	if err != nil {
-		return Message{}, err
+		return model.Message{}, err
 	}
 
 	results, err := a.ToolInvoker.Invoke(ctx, plan)
 	if err != nil {
-		return Message{}, err
+		return model.Message{}, err
 	}
 
 	msg, err := a.Composer.Compose(ctx, plan, results)
 	if err != nil {
-		return Message{}, err
+		return model.Message{}, err
 	}
 
 	if msg.Role == "" {
-		msg.Role = RoleAssistant
+		msg.Role = model.RoleAssistant
 	}
 	if msg.Timestamp.IsZero() {
 		msg.Timestamp = time.Now()
@@ -86,7 +88,7 @@ func (a AgentLoop) Respond(ctx context.Context, input AgentInput) (Message, erro
 // EchoPlanner turns the inbound message into a minimal plan.
 type EchoPlanner struct{}
 
-func (EchoPlanner) Plan(_ context.Context, input AgentInput) (Plan, error) {
+func (EchoPlanner) Plan(_ context.Context, input Input) (Plan, error) {
 	content := strings.TrimSpace(input.Event.Content)
 	summary := content
 	if summary == "" {
@@ -111,7 +113,7 @@ func (NoopToolInvoker) Invoke(_ context.Context, plan Plan) ([]ToolResult, error
 // SimpleComposer echoes the plan summary and any tool outputs.
 type SimpleComposer struct{}
 
-func (SimpleComposer) Compose(_ context.Context, plan Plan, results []ToolResult) (Message, error) {
+func (SimpleComposer) Compose(_ context.Context, plan Plan, results []ToolResult) (model.Message, error) {
 	var fragments []string
 	if plan.Summary != "" {
 		fragments = append(fragments, plan.Summary)
@@ -125,8 +127,8 @@ func (SimpleComposer) Compose(_ context.Context, plan Plan, results []ToolResult
 	if content == "" {
 		content = "ok"
 	}
-	return Message{
-		Role:      RoleAssistant,
+	return model.Message{
+		Role:      model.RoleAssistant,
 		Content:   content,
 		Timestamp: time.Now(),
 	}, nil

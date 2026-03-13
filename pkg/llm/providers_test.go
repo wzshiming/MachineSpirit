@@ -1,4 +1,4 @@
-package core
+package llm
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	openaioption "github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
+
+	"github.com/wzshiming/MachineSpirit/pkg/model"
 )
 
 func TestOpenAIProviderComplete(t *testing.T) {
@@ -76,10 +78,10 @@ func TestOpenAIProviderComplete(t *testing.T) {
 
 	resp, err := provider.Complete(context.Background(), ChatRequest{
 		SystemPrompt: "You are helpful",
-		Transcript: []Message{
-			{Role: RoleAssistant, Content: "prior answer"},
+		Transcript: []model.Message{
+			{Role: model.RoleAssistant, Content: "prior answer"},
 		},
-		Prompt: Message{Role: RoleUser, Content: "current question"},
+		Prompt: model.Message{Role: model.RoleUser, Content: "current question"},
 	})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
@@ -181,10 +183,10 @@ func TestAnthropicProviderComplete(t *testing.T) {
 
 	resp, err := provider.Complete(context.Background(), ChatRequest{
 		SystemPrompt: "You are helpful",
-		Transcript: []Message{
-			{Role: RoleAssistant, Content: "prior answer"},
+		Transcript: []model.Message{
+			{Role: model.RoleAssistant, Content: "prior answer"},
 		},
-		Prompt: Message{Role: RoleUser, Content: "current question"},
+		Prompt: model.Message{Role: model.RoleUser, Content: "current question"},
 	})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
