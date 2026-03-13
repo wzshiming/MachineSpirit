@@ -2,8 +2,15 @@
 
 Core implementation (first step):
 
-- **Sessions & agents**: per-session agent runtime so conversations stay isolated; tracks presence/typing and queue/activation rules.
-- **Tools/skills**: browser, exec, cron, canvas/visuals, and custom skills streamed over the Gateway with retry/failover.
+- **Sessions & agents**: per-session runtime that owns conversation state. Handles intake from Gateway, applies queue/activation rules, updates presence/typing, and drives the agent loop (plan → tool calls → replies).
+  - Message path: channel event → Gateway session inbox → agent state update → response envelope (with typing/presence) → Gateway egress.
+  - State hygiene: prune inactive sessions; keep transcripts scoped per session.
+
+Core implementation (second step):
+
+- **Tools/skills**: orchestrator for browser, exec, cron, canvas/visuals, and custom skills. Stream calls over the Gateway with retry/failover and chunked outputs.
+  - Tool path: agent invokes tool → streamed over Gateway → tool runtime executes (may be remote) → partials/results streamed back → agent composes reply.
+  - Failovers: retry on transient errors; allow model/tool fallback when declared.
 
 Peripheral packaging:
 
