@@ -53,7 +53,9 @@ func main() {
 		Tools: []llm.Tool{
 			{
 				Name:        "search_flights",
-				Description: "Search flights given route and date details",
+				Short:       "Search flights",
+				Description: "Search flights for a given route and date range or specific day.",
+				Parameters:  "Text like \"New York to London tomorrow\"",
 				Fn: func(ctx context.Context, input string) (string, error) {
 					flightContext.lastQuery = input
 					results := fmt.Sprintf("Options for %s: 08:00 $500; 12:00 $450; 18:00 $520", input)
@@ -62,7 +64,9 @@ func main() {
 			},
 			{
 				Name:        "reserve_flight",
-				Description: "Reserve a flight based on a chosen option",
+				Short:       "Reserve flight",
+				Description: "Reserve the selected flight option.",
+				Parameters:  "Preferred option or reference from prior search",
 				Fn: func(ctx context.Context, input string) (string, error) {
 					choice := strings.TrimSpace(input)
 					if choice == "" {

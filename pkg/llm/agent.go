@@ -12,7 +12,9 @@ import (
 // Tool represents an action the agent can execute.
 type Tool struct {
 	Name        string
-	Description string
+	Short       string // short one-line summary
+	Description string // longer detail
+	Parameters  string // expected input/parameters description
 	Fn          func(context.Context, string) (string, error)
 }
 
@@ -39,6 +41,15 @@ type agentCommand struct {
 
 const agentInstruction = `Follow a perception -> memory retrieval -> decision-making -> action -> feedback loop. Always respond with raw JSON only (no XML/HTML/Markdown). If a tool is needed, reply with {"action":"call_tool","tool":"<name>","input":"<input>"}. When ready to answer the user, reply with {"action":"respond","reply":"<message>"}.`
 
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // NewAgent constructs an Agent bound to an existing Session.
 func NewAgent(session *Session, cfg AgentConfig) *Agent {
 	toolMap := make(map[string]Tool)
@@ -64,7 +75,14 @@ func NewAgent(session *Session, cfg AgentConfig) *Agent {
 		sort.Strings(names)
 		for _, name := range names {
 			tool := toolMap[name]
-			toolDescriptions = append(toolDescriptions, fmt.Sprintf("%s: %s", tool.Name, tool.Description))
+			line := fmt.Sprintf("%s — %s", tool.Name, firstNonEmpty(tool.Short, tool.Description, "no description"))
+			if tool.Parameters != "" {
+				line = line + fmt.Sprintf(" | input: %s", tool.Parameters)
+			}
+			if tool.Description != "" && tool.Description != tool.Short {
+				line = line + fmt.Sprintf("\n  %s", tool.Description)
+			}
+			toolDescriptions = append(toolDescriptions, line)
 		}
 	}
 	if len(toolDescriptions) > 0 {

@@ -42,7 +42,9 @@ func TestAgentRunInvokesToolThenResponds(t *testing.T) {
 		Tools: []Tool{
 			{
 				Name:        "search",
-				Description: "flight search tool",
+				Short:       "Flight search",
+				Description: "Finds flights between locations on specified dates.",
+				Parameters:  "text like \"NYC to LON tomorrow\"",
 				Fn: func(ctx context.Context, input string) (string, error) {
 					toolInput = input
 					return "Found 1 option at 8pm, $500", nil
@@ -68,7 +70,7 @@ func TestAgentRunInvokesToolThenResponds(t *testing.T) {
 		t.Fatalf("expected 2 llm calls, got %d", len(llm.requests))
 	}
 	sysPrompt := llm.requests[0].SystemPrompt
-	if !strings.Contains(sysPrompt, "Tools you can call") || !strings.Contains(sysPrompt, "search: flight search tool") {
+	if !strings.Contains(sysPrompt, "Tools you can call") || !strings.Contains(sysPrompt, "search — Flight search") || !strings.Contains(sysPrompt, "input: text like") {
 		t.Fatalf("system prompt missing tool descriptions: %q", sysPrompt)
 	}
 
