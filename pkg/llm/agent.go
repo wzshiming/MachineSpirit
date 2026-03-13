@@ -14,8 +14,9 @@ type Tool struct {
 	Name        string
 	Short       string // short one-line summary
 	Description string // longer detail
-	Parameters  string // expected input/parameters description
-	Fn          func(context.Context, string) (string, error)
+	Parameters  map[string]string
+	Returns     map[string]string
+	Fn          func(context.Context, map[string]string) (map[string]string, error)
 }
 
 // AgentConfig controls how the agent plans and executes tool calls.
@@ -35,11 +36,11 @@ type Agent struct {
 type agentCommand struct {
 	Action string `json:"action"`
 	Tool   string `json:"tool,omitempty"`
-	Input  string `json:"input,omitempty"`
+	Input  any    `json:"input,omitempty"`
 	Reply  string `json:"reply,omitempty"`
 }
 
-const agentInstruction = `Follow a perception -> memory retrieval -> decision-making -> action -> feedback loop. Always respond with raw JSON only (no XML/HTML/Markdown). If a tool is needed, reply with {"action":"call_tool","tool":"<name>","input":"<input>"}. When ready to answer the user, reply with {"action":"respond","reply":"<message>"}.`
+const agentInstruction = `Follow a perception -> memory retrieval -> decision-making -> action -> feedback loop. Always respond with raw JSON only (no XML/HTML/Markdown). If a tool is needed, reply with {"action":"call_tool","tool":"<name>","input":{<parameters as JSON object>}}. When ready to answer the user, reply with {"action":"respond","reply":"<message>"}.`
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
@@ -48,6 +49,53 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func formatKV(kv map[string]string) string {
+	if len(kv) == 0 {
+		return ""
+	}
+	var keys []string
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %s", k, kv[k]))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func normalizeInput(v any) (map[string]string, error) {
+	if v == nil {
+		return map[string]string{}, nil
+	}
+	if m, ok := v.(map[string]string); ok {
+		return m, nil
+	}
+	// handle map[string]any
+	if m, ok := v.(map[string]any); ok {
+		out := make(map[string]string, len(m))
+		for k, val := range m {
+			out[k] = fmt.Sprint(val)
+		}
+		return out, nil
+	}
+	// handle raw JSON string/object encoded as string
+	if s, ok := v.(string); ok {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(s), &parsed); err == nil {
+			out := make(map[string]string, len(parsed))
+			for k, val := range parsed {
+				out[k] = fmt.Sprint(val)
+			}
+			return out, nil
+		}
+		return map[string]string{"input": s}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported input type %T", v)
 }
 
 // NewAgent constructs an Agent bound to an existing Session.
@@ -77,10 +125,11 @@ func NewAgent(session *Session, cfg AgentConfig) *Agent {
 			tool := toolMap[name]
 			short := firstNonEmpty(tool.Short, "no short description")
 			long := firstNonEmpty(tool.Description, "no detailed description")
-			params := firstNonEmpty(tool.Parameters, "free-form text input")
+			params := firstNonEmpty(formatKV(tool.Parameters), "free-form text input")
+			rets := firstNonEmpty(formatKV(tool.Returns), "unspecified")
 			toolDescriptions = append(toolDescriptions,
-				fmt.Sprintf("%s — %s\n  Details: %s\n  Parameters: %s",
-					tool.Name, short, long, params))
+				fmt.Sprintf("%s — %s\n  Details: %s\n  Parameters: %s\n  Returns: %s",
+					tool.Name, short, long, params, rets))
 		}
 	}
 	if len(toolDescriptions) > 0 {
@@ -126,13 +175,24 @@ func (a *Agent) Run(ctx context.Context, input string) (Message, error) {
 			if !ok {
 				return Message{}, fmt.Errorf("unknown tool %q", cmd.Tool)
 			}
-			out, err := tool.Fn(ctx, cmd.Input)
+			args, err := normalizeInput(cmd.Input)
+			if err != nil {
+				return Message{}, fmt.Errorf("invalid tool input: %w", err)
+			}
+			out, err := tool.Fn(ctx, args)
 			if err != nil {
 				return Message{}, fmt.Errorf("tool %s failed: %w", tool.Name, err)
 			}
+			if out == nil {
+				out = map[string]string{}
+			}
+			outJSON, err := json.Marshal(out)
+			if err != nil {
+				return Message{}, fmt.Errorf("tool %s produced non-serializable output: %w", tool.Name, err)
+			}
 			prompt = Message{
 				Role:    RoleUser,
-				Content: fmt.Sprintf("Tool %s result: %s", tool.Name, strings.TrimSpace(out)),
+				Content: fmt.Sprintf("Tool %s result: %s", tool.Name, strings.TrimSpace(string(outJSON))),
 			}
 		default:
 			return resp, nil

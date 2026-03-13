@@ -18,7 +18,7 @@ func (s *scriptedLLM) Complete(ctx context.Context, req ChatRequest) (Message, e
 	case 1:
 		return Message{
 			Role:      RoleAssistant,
-			Content:   `<response>{"action":"call_tool","tool":"search","input":"New York to London tomorrow"}</response>`,
+			Content:   `<response>{"action":"call_tool","tool":"search","input":{"route":"New York to London","date":"tomorrow"}}</response>`,
 			Timestamp: time.Unix(1, 0),
 		}, nil
 	case 2:
@@ -44,10 +44,16 @@ func TestAgentRunInvokesToolThenResponds(t *testing.T) {
 				Name:        "search",
 				Short:       "Flight search",
 				Description: "Finds flights between locations on specified dates.",
-				Parameters:  "text like \"NYC to LON tomorrow\"",
-				Fn: func(ctx context.Context, input string) (string, error) {
-					toolInput = input
-					return "Found 1 option at 8pm, $500", nil
+				Parameters: map[string]string{
+					"route": "origin and destination",
+					"date":  "travel date",
+				},
+				Returns: map[string]string{
+					"summary": "options summary",
+				},
+				Fn: func(ctx context.Context, input map[string]string) (map[string]string, error) {
+					toolInput = input["route"] + " " + input["date"]
+					return map[string]string{"summary": "Found 1 option at 8pm, $500"}, nil
 				},
 			},
 		},
@@ -73,7 +79,8 @@ func TestAgentRunInvokesToolThenResponds(t *testing.T) {
 	if !strings.Contains(sysPrompt, "Tools you can call") ||
 		!strings.Contains(sysPrompt, "search — Flight search") ||
 		!strings.Contains(sysPrompt, "Details: Finds flights between locations on specified dates.") ||
-		!strings.Contains(sysPrompt, "Parameters: text like") {
+		!strings.Contains(sysPrompt, "Parameters: date: travel date; route: origin and destination") ||
+		!strings.Contains(sysPrompt, "Returns: summary: options summary") {
 		t.Fatalf("system prompt missing tool descriptions: %q", sysPrompt)
 	}
 

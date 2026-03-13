@@ -55,28 +55,42 @@ func main() {
 				Name:        "search_flights",
 				Short:       "Search flights",
 				Description: "Search flights for a given route and date range or specific day.",
-				Parameters:  "Text like \"New York to London tomorrow\"",
-				Fn: func(ctx context.Context, input string) (string, error) {
-					flightContext.lastQuery = input
-					results := fmt.Sprintf("Options for %s: 08:00 $500; 12:00 $450; 18:00 $520", input)
-					return results, nil
+				Parameters: map[string]string{
+					"route": "origin to destination (e.g., New York to London)",
+					"date":  "date or range (e.g., tomorrow)",
+				},
+				Returns: map[string]string{
+					"options": "list of options with time and price",
+				},
+				Fn: func(ctx context.Context, input map[string]string) (map[string]string, error) {
+					route := strings.TrimSpace(input["route"])
+					date := strings.TrimSpace(input["date"])
+					query := strings.TrimSpace(strings.Join([]string{route, date}, " "))
+					flightContext.lastQuery = query
+					results := fmt.Sprintf("Options for %s: 08:00 $500; 12:00 $450; 18:00 $520", query)
+					return map[string]string{"options": results}, nil
 				},
 			},
 			{
 				Name:        "reserve_flight",
 				Short:       "Reserve flight",
 				Description: "Reserve the selected flight option.",
-				Parameters:  "Preferred option or reference from prior search",
-				Fn: func(ctx context.Context, input string) (string, error) {
-					choice := strings.TrimSpace(input)
+				Parameters: map[string]string{
+					"selection": "preferred option or reference",
+				},
+				Returns: map[string]string{
+					"status": "reservation confirmation message",
+				},
+				Fn: func(ctx context.Context, input map[string]string) (map[string]string, error) {
+					choice := strings.TrimSpace(input["selection"])
 					if choice == "" {
 						choice = flightContext.lastQuery
 					}
 					if choice == "" {
-						return "No prior search. Please provide route/date to reserve.", nil
+						return map[string]string{"status": "No prior search. Please provide route/date to reserve."}, nil
 					}
 					flightContext.lastPick = choice
-					return fmt.Sprintf("Reservation placed for: %s", choice), nil
+					return map[string]string{"status": fmt.Sprintf("Reservation placed for: %s", choice)}, nil
 				},
 			},
 		},
