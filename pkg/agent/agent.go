@@ -202,13 +202,38 @@ func (a *Agent) buildPrompt(userInput, memoryContext string) string {
 	// List available skills (higher-level capabilities)
 	skills := a.invoker.GetSkillInvoker().List()
 	if len(skills) > 0 {
-		sb.WriteString("## Available Skills (High-level capabilities):\n")
+		// Separate instruction-based skills from executable skills
+		var instructionSkills []Skill
+		var executableSkills []Skill
+
 		for _, skillName := range skills {
 			if skill, err := a.invoker.GetSkillInvoker().registry.Get(skillName); err == nil {
-				sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Name(), skill.Description()))
+				// Check if this is an instruction-based skill
+				if instrSkill, ok := skill.(interface{ IsInstructionBased() bool }); ok && instrSkill.IsInstructionBased() {
+					instructionSkills = append(instructionSkills, skill)
+				} else {
+					executableSkills = append(executableSkills, skill)
+				}
 			}
 		}
-		sb.WriteString("\n")
+
+		// Include instruction-based skills with full instructions
+		if len(instructionSkills) > 0 {
+			sb.WriteString("## Expert Skills (Follow these instructional guides):\n\n")
+			for _, skill := range instructionSkills {
+				sb.WriteString(skill.DetailedDescription())
+				sb.WriteString("\n\n---\n\n")
+			}
+		}
+
+		// List executable skills briefly
+		if len(executableSkills) > 0 {
+			sb.WriteString("## Available Workflows (Executable capabilities):\n")
+			for _, skill := range executableSkills {
+				sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Name(), skill.Description()))
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	// List available tools (low-level operations)
@@ -296,4 +321,21 @@ func (a *Agent) GetSkillRegistry() *SkillRegistry {
 // GetInvoker returns the agent's multi-tool invoker.
 func (a *Agent) GetInvoker() *MultiToolInvoker {
 	return a.invoker
+}
+
+// LoadSkillsFromDirectory loads markdown-based skills from a directory.
+func (a *Agent) LoadSkillsFromDirectory(skillsDir string) error {
+	loader := NewSkillLoader(skillsDir)
+	skills, err := loader.LoadAllSkills()
+	if err != nil {
+		return fmt.Errorf("failed to load skills: %w", err)
+	}
+
+	for _, skill := range skills {
+		if err := a.RegisterSkill(skill); err != nil {
+			return fmt.Errorf("failed to register skill %s: %w", skill.Name(), err)
+		}
+	}
+
+	return nil
 }

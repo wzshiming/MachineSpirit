@@ -9,7 +9,7 @@ MachineSpirit is a Go-based framework for building intelligent agents with LLM-p
 - **LLM Integration**: Support for multiple LLM providers (OpenAI, Anthropic)
 - **Stateful Sessions**: Maintain conversation history across multiple interactions
 - **Agent System**: Multi-step reasoning with tool calling and memory
-- **Skills Framework**: High-level, composable capabilities that extend tools
+- **Skills Framework**: High-level, composable capabilities (executable code + markdown instructions)
 - **Memory Management**: Store and retrieve facts for context-aware decision-making
 - **Tool Framework**: Extensible system for adding custom actions
 - **Interactive CLI**: Ready-to-use command-line interface
@@ -253,7 +253,8 @@ If any step fails, the agent replans or asks for clarification.
 ## Documentation
 
 - [Agent System Documentation](docs/agent.md) - Detailed agent architecture and usage
-- [Skills System Documentation](docs/skills.md) - Skills framework and best practices
+- [Skills System Documentation](docs/skills.md) - Executable skills framework and best practices
+- [Markdown Skills Documentation](docs/markdown_skills.md) - Anthropic-style instruction skills
 
 ## Development
 

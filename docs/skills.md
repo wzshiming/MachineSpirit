@@ -2,6 +2,12 @@
 
 The Skills system provides a high-level, composable capability framework that works alongside the existing Tools system. Skills are designed to handle complex, multi-step operations while Tools remain focused on low-level primitives.
 
+MachineSpirit supports **two types of skills**:
+1. **Executable Skills** (Go code): Programmatic workflows with type safety and performance
+2. **Instruction Skills** (Markdown): Anthropic-style instruction sets that teach the LLM how to use tools
+
+See [Markdown Skills Documentation](markdown_skills.md) for details on instruction-based skills.
+
 ## Overview
 
 The MachineSpirit agent system now supports a layered architecture:

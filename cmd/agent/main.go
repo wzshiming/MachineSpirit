@@ -67,12 +67,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load markdown-based instruction skills from directory
+	skillsDir := "skills"
+	if err := ag.LoadSkillsFromDirectory(skillsDir); err != nil {
+		// Non-fatal: just warn if skills directory doesn't exist or fails to load
+		fmt.Fprintf(os.Stderr, "Note: Could not load skills from %s: %v\n", skillsDir, err)
+	}
+
 	// Store some example preferences in memory
 	ag.Memory().Store("preferred_airline", "Delta Airlines")
 	ag.Memory().Store("user_name", "John Doe")
 
 	fmt.Println("Agent mode enabled with Skills support.")
-	fmt.Println("Available Skills: flight_booking (end-to-end booking)")
+	fmt.Println("Available instruction-based skills: flight_booking (loaded from markdown)")
+	fmt.Println("Available executable workflows: flight_booking (code-based)")
 	fmt.Println("Available Tools: flight_search, flight_reservation")
 	fmt.Println("Example preferences stored: preferred_airline=Delta Airlines, user_name=John Doe")
 	fmt.Println()
