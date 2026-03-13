@@ -70,7 +70,10 @@ func TestAgentRunInvokesToolThenResponds(t *testing.T) {
 		t.Fatalf("expected 2 llm calls, got %d", len(llm.requests))
 	}
 	sysPrompt := llm.requests[0].SystemPrompt
-	if !strings.Contains(sysPrompt, "Tools you can call") || !strings.Contains(sysPrompt, "search — Flight search") || !strings.Contains(sysPrompt, "input: text like") {
+	if !strings.Contains(sysPrompt, "Tools you can call") ||
+		!strings.Contains(sysPrompt, "search — Flight search") ||
+		!strings.Contains(sysPrompt, "Details: Finds flights between locations on specified dates.") ||
+		!strings.Contains(sysPrompt, "Parameters: text like") {
 		t.Fatalf("system prompt missing tool descriptions: %q", sysPrompt)
 	}
 

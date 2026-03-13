@@ -75,18 +75,16 @@ func NewAgent(session *Session, cfg AgentConfig) *Agent {
 		sort.Strings(names)
 		for _, name := range names {
 			tool := toolMap[name]
-			line := fmt.Sprintf("%s — %s", tool.Name, firstNonEmpty(tool.Short, tool.Description, "no description"))
-			if tool.Parameters != "" {
-				line = line + fmt.Sprintf(" | input: %s", tool.Parameters)
-			}
-			if tool.Description != "" && tool.Description != tool.Short {
-				line = line + fmt.Sprintf("\n  %s", tool.Description)
-			}
-			toolDescriptions = append(toolDescriptions, line)
+			short := firstNonEmpty(tool.Short, "no short description")
+			long := firstNonEmpty(tool.Description, "no detailed description")
+			params := firstNonEmpty(tool.Parameters, "free-form text input")
+			toolDescriptions = append(toolDescriptions,
+				fmt.Sprintf("%s — %s\n  Details: %s\n  Parameters: %s",
+					tool.Name, short, long, params))
 		}
 	}
 	if len(toolDescriptions) > 0 {
-		systemPrompt = strings.TrimSpace(systemPrompt + "\n\nTools you can call:\n- " + strings.Join(toolDescriptions, "\n- ") + "\n\n" + agentInstruction)
+		systemPrompt = strings.TrimSpace(systemPrompt + "\n\nTools you can call (short | details | parameters):\n- " + strings.Join(toolDescriptions, "\n- ") + "\n\nYou can ask for details again if unclear.\n\n" + agentInstruction)
 	} else {
 		systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + agentInstruction + " No tools are available; respond directly.")
 	}
