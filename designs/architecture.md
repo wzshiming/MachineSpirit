@@ -30,3 +30,9 @@ Reliability & safety (minimal set):
 - Channel-aware chunking + retry/backoff.
 - Session pruning and basic queue controls.
 - Permission-aware node actions; DM pairing by default. 
+
+Differences from OpenClaw:
+
+- Scope is reduced to the two core steps (sessions/agents, tools/skills); Gateway/channels/nodes/surfaces are treated as packaging, not expansion targets.
+- No multi-channel breadth assumed up front; start with the minimum channels/nodes needed, then grow.
+- Tooling is focused on orchestrator patterns (streamed calls, retries/fallbacks) rather than specific skill catalogs. 
