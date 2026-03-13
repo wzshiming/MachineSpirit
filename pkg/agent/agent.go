@@ -58,6 +58,7 @@ type Loop struct {
 	Planner     Planner
 	ToolInvoker ToolInvoker
 	Composer    Composer
+	Memory      Memory
 }
 
 func (a Loop) Respond(ctx context.Context, input Input) (model.Message, error) {
@@ -82,6 +83,11 @@ func (a Loop) Respond(ctx context.Context, input Input) (model.Message, error) {
 	if msg.Timestamp.IsZero() {
 		msg.Timestamp = time.Now()
 	}
+
+	if a.Memory != nil {
+		a.Memory.RecordTurn(ctx, input.Event.SessionID, input.Event.Timestamp, input.Event.Content, msg)
+	}
+
 	return msg, nil
 }
 

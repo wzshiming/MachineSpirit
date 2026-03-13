@@ -270,8 +270,6 @@ func (m *Manager) ensureSession(id string, now time.Time) *sessionState {
 	return session
 }
 
-const recentMemoryLimit = 50
-
 func (m *Manager) persistMemory(ctx context.Context, sessionID string, user model.Message, reply model.Message) {
 	userEntry := formatMemoryLine(sessionID, user)
 	replyEntry := formatMemoryLine(sessionID, reply)
@@ -287,8 +285,8 @@ func (m *Manager) persistMemory(ctx context.Context, sessionID string, user mode
 	recent, err := m.mem.Read(ctx, memory.LayerRecent)
 	if err == nil {
 		recent = append(recent, userEntry, replyEntry)
-		if len(recent) > recentMemoryLimit {
-			recent = recent[len(recent)-recentMemoryLimit:]
+		if len(recent) > agentRecentMemoryLimit {
+			recent = recent[len(recent)-agentRecentMemoryLimit:]
 		}
 		_ = m.mem.Write(ctx, memory.LayerRecent, recent)
 	}
@@ -308,3 +306,5 @@ func formatMemoryLine(sessionID string, msg model.Message) string {
 	ts := msg.Timestamp.UTC().Format(time.RFC3339)
 	return sessionID + "|" + ts + "|" + string(msg.Role) + "|" + strings.ReplaceAll(msg.Content, "\n", " ")
 }
+
+const agentRecentMemoryLimit = 50
