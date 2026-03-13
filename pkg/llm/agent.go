@@ -37,7 +37,7 @@ type agentCommand struct {
 	Reply  string `json:"reply,omitempty"`
 }
 
-const agentInstruction = `Follow a perception -> memory retrieval -> decision-making -> action -> feedback loop. If a tool is needed, reply with JSON {"action":"call_tool","tool":"<name>","input":"<input>"}. When ready to answer the user, reply with JSON {"action":"respond","reply":"<message>"}.`
+const agentInstruction = `Follow a perception -> memory retrieval -> decision-making -> action -> feedback loop. Always respond with raw JSON only (no XML/HTML/Markdown). If a tool is needed, reply with {"action":"call_tool","tool":"<name>","input":"<input>"}. When ready to answer the user, reply with {"action":"respond","reply":"<message>"}.`
 
 // NewAgent constructs an Agent bound to an existing Session.
 func NewAgent(session *Session, cfg AgentConfig) *Agent {
@@ -127,11 +127,41 @@ func (a *Agent) Run(ctx context.Context, input string) (Message, error) {
 }
 
 func parseAgentCommand(content string) (agentCommand, bool) {
-	var cmd agentCommand
-	dec := json.NewDecoder(strings.NewReader(content))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cmd); err != nil || cmd.Action == "" {
-		return agentCommand{}, false
+	tryDecode := func(text string) (agentCommand, bool) {
+		var cmd agentCommand
+		dec := json.NewDecoder(strings.NewReader(text))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&cmd); err != nil || cmd.Action == "" {
+			return agentCommand{}, false
+		}
+		return cmd, true
 	}
-	return cmd, true
+
+	trimmed := strings.TrimSpace(content)
+	if cmd, ok := tryDecode(trimmed); ok {
+		return cmd, true
+	}
+
+	if strings.Contains(trimmed, "```") {
+		first := strings.Index(trimmed, "```")
+		if first >= 0 {
+			rest := trimmed[first+3:]
+			second := strings.Index(rest, "```")
+			if second > 0 {
+				if cmd, ok := tryDecode(strings.TrimSpace(rest[:second])); ok {
+					return cmd, true
+				}
+			}
+		}
+	}
+
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start >= 0 && end > start {
+		if cmd, ok := tryDecode(strings.TrimSpace(trimmed[start : end+1])); ok {
+			return cmd, true
+		}
+	}
+
+	return agentCommand{}, false
 }

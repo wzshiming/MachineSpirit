@@ -18,7 +18,7 @@ func (s *scriptedLLM) Complete(ctx context.Context, req ChatRequest) (Message, e
 	case 1:
 		return Message{
 			Role:      RoleAssistant,
-			Content:   `{"action":"call_tool","tool":"search","input":"New York to London tomorrow"}`,
+			Content:   `<response>{"action":"call_tool","tool":"search","input":"New York to London tomorrow"}</response>`,
 			Timestamp: time.Unix(1, 0),
 		}, nil
 	case 2:
