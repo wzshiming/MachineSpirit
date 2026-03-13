@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
+
+	"github.com/wzshiming/MachineSpirit/pkg/skills"
 )
 
 // BuiltinInvoker executes registered built-in tools.
 type BuiltinInvoker struct {
-	Tools map[string]Skill
+	Tools map[string]skills.Skill
 }
 
 func (b BuiltinInvoker) InvokeCall(ctx context.Context, call ToolCall) ToolResult {
@@ -28,7 +30,7 @@ func (b BuiltinInvoker) InvokeCall(ctx context.Context, call ToolCall) ToolResul
 
 // MCPInvoker executes tools exposed via MCP.
 type MCPInvoker struct {
-	Tools map[string]Skill
+	Tools map[string]skills.Skill
 }
 
 func (m MCPInvoker) InvokeCall(ctx context.Context, call ToolCall) ToolResult {

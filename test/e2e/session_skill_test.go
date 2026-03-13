@@ -8,27 +8,31 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
 	"github.com/wzshiming/MachineSpirit/pkg/model"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
+	"github.com/wzshiming/MachineSpirit/pkg/skills"
 )
 
 // End-to-end: session manager routes an event through planner -> skill -> composer.
 func TestSessionSkillInvocationEndToEnd(t *testing.T) {
 	skillOutputs := make(chan string, 1)
 
-	skills := agent.SkillInvoker{
-		Skills: map[string]agent.Skill{
-			"echo": agent.SkillFunc(func(ctx context.Context, payload map[string]any) (string, error) {
-				val, _ := payload["text"].(string)
-				skillOutputs <- val
-				return "echo:" + val, nil
-			}),
+	reg := skills.NewRegistry(skills.Func{
+		SkillName: "echo",
+		Handler: func(ctx context.Context, payload map[string]any) (string, error) {
+			val, _ := payload["text"].(string)
+			skillOutputs <- val
+			return "echo:" + val, nil
 		},
+	})
+
+	skillInvoker := agent.SkillInvoker{
+		Selector: skills.Selector{Registry: reg},
 	}
 
 	planner := skillPlanner{}
 
 	manager := session.NewManager(agent.Loop{
 		Planner:     planner,
-		ToolInvoker: skills,
+		ToolInvoker: skillInvoker,
 		Composer:    agent.SimpleComposer{},
 	})
 

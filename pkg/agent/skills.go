@@ -3,28 +3,18 @@ package agent
 import (
 	"context"
 	"errors"
+
+	"github.com/wzshiming/MachineSpirit/pkg/skills"
 )
-
-// Skill represents an executable capability the agent can call.
-type Skill interface {
-	Invoke(ctx context.Context, payload map[string]any) (string, error)
-}
-
-// SkillFunc is a function adapter to satisfy the Skill interface.
-type SkillFunc func(ctx context.Context, payload map[string]any) (string, error)
-
-func (f SkillFunc) Invoke(ctx context.Context, payload map[string]any) (string, error) {
-	return f(ctx, payload)
-}
 
 // CallInvoker executes a single ToolCall and returns a ToolResult.
 type CallInvoker interface {
 	InvokeCall(ctx context.Context, call ToolCall) ToolResult
 }
 
-// SkillInvoker dispatches tool calls to registered skills.
+// SkillInvoker dispatches tool calls to registered skills using the selector.
 type SkillInvoker struct {
-	Skills map[string]Skill
+	Selector skills.Selector
 }
 
 func (s SkillInvoker) Invoke(ctx context.Context, plan Plan) ([]ToolResult, error) {
@@ -36,7 +26,7 @@ func (s SkillInvoker) Invoke(ctx context.Context, plan Plan) ([]ToolResult, erro
 }
 
 func (s SkillInvoker) InvokeCall(ctx context.Context, call ToolCall) ToolResult {
-	skill, ok := s.Skills[call.Name]
+	skill, ok := s.Selector.Select(call.Name)
 	if !ok || skill == nil {
 		return ToolResult{
 			Name: call.Name,
