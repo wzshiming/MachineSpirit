@@ -17,6 +17,7 @@ type Agent interface {
 type Input struct {
 	Event      model.Event
 	Transcript []model.Message
+	Memories   MemoryContext
 }
 
 // Plan holds the high-level intent and tool calls for a turn.
