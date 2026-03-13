@@ -63,6 +63,10 @@ type Loop struct {
 }
 
 func (a Loop) Respond(ctx context.Context, input Input) (model.Message, error) {
+	if a.Memory != nil {
+		input.Memories = a.Memory.Load(ctx, input.Event.SessionID)
+	}
+
 	plan, err := a.Planner.Plan(ctx, input)
 	if err != nil {
 		return model.Message{}, err
