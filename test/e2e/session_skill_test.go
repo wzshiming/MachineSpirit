@@ -1,4 +1,4 @@
-package session
+package e2e
 
 import (
 	"context"
@@ -7,10 +7,11 @@ import (
 
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
 	"github.com/wzshiming/MachineSpirit/pkg/model"
+	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
-// End-to-end test: planner -> skill invocation -> composer -> session manager envelope.
-func TestSessionE2ESkillInvocation(t *testing.T) {
+// End-to-end: session manager routes an event through planner -> skill -> composer.
+func TestSessionSkillInvocationEndToEnd(t *testing.T) {
 	skillOutputs := make(chan string, 1)
 
 	skills := agent.SkillInvoker{
@@ -25,7 +26,7 @@ func TestSessionE2ESkillInvocation(t *testing.T) {
 
 	planner := skillPlanner{}
 
-	manager := NewManager(agent.Loop{
+	manager := session.NewManager(agent.Loop{
 		Planner:     planner,
 		ToolInvoker: skills,
 		Composer:    agent.SimpleComposer{},
@@ -41,6 +42,15 @@ func TestSessionE2ESkillInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleEvent returned error: %v", err)
 	}
+
+	if envelope.Dropped {
+		t.Fatalf("event was dropped: %+v", envelope)
+	}
+
+	if len(envelope.Presence) != 2 || envelope.Presence[0].Status != model.PresenceTyping || envelope.Presence[1].Status != model.PresenceActive {
+		t.Fatalf("unexpected presence updates: %+v", envelope.Presence)
+	}
+
 	if len(envelope.Messages) != 1 {
 		t.Fatalf("expected one assistant reply, got %d", len(envelope.Messages))
 	}
@@ -55,6 +65,17 @@ func TestSessionE2ESkillInvocation(t *testing.T) {
 		}
 	default:
 		t.Fatalf("skill was not invoked")
+	}
+
+	snapshot, ok := manager.Snapshot(event.SessionID)
+	if !ok {
+		t.Fatalf("snapshot missing")
+	}
+	if snapshot.Transcript == nil || len(snapshot.Transcript) != 2 {
+		t.Fatalf("expected 2 transcript entries, got %d", len(snapshot.Transcript))
+	}
+	if snapshot.Transcript[0].Role != model.RoleUser || snapshot.Transcript[1].Role != model.RoleAssistant {
+		t.Fatalf("unexpected transcript roles: %+v", snapshot.Transcript)
 	}
 }
 
