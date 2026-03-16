@@ -13,14 +13,16 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
 var (
-	Name    string
-	Model   string
-	APIKey  string
-	BaseURL string
+	Name         string
+	Model        string
+	APIKey       string
+	BaseURL      string
+	WorkspaceDir string
 )
 
 func init() {
@@ -28,10 +30,18 @@ func init() {
 	flag.StringVar(&Model, "model", "", "Model name (optional, provider default used if empty)")
 	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
 	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
+	flag.StringVar(&WorkspaceDir, "workspace", "", "Path to workspace directory (optional)")
 	flag.Parse()
 }
 
 func main() {
+	pm, err := persistence.NewPersistenceManager("")
+	if err != nil {
+		slog.Error("Failed to initialize persistence manager", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize LLM
 	llm, err := llm.NewLLM(
 		llm.WithProvider(Name),
 		llm.WithModel(Model),
@@ -44,17 +54,19 @@ func main() {
 	}
 
 	ctx := context.Background()
-	session := session.NewSession(llm,
-		session.WithSystemPrompt("You are a helpful coding assistant with access to shell commands and file operations."),
-	)
+
+	session := session.NewSession(llm)
 
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
+		tools.NewWriteTool(),
+		tools.NewReadTool(),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
 	ag, err := agent.NewAgent(
 		session,
+		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
 		agent.WithSkills(skillsList),
 		agent.WithMaxRetries(20),
@@ -98,7 +110,6 @@ func main() {
 					for _, tool := range toolsList {
 						fmt.Printf("- %s: %s\n", tool.Name(), tool.Description())
 					}
-					return
 				} else {
 					fmt.Println("Unknown command. Type /help for a list of commands.")
 					return
@@ -123,6 +134,7 @@ func main() {
 				{Text: "/bye", Description: "Exit the program"},
 				{Text: "/skills", Description: "List available skills"},
 				{Text: "/tools", Description: "List available tools"},
+				{Text: "/complete_bootstrap", Description: "Complete bootstrap and delete BOOTSTRAP.md"},
 			}
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},

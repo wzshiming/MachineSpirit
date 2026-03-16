@@ -30,7 +30,9 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 
 	session := NewSession(provider, WithSystemPrompt("You are helpful"), WithTranscript(seedTranscript))
 
-	first, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "hello"})
+	first, err := session.Complete(ctx, llm.ChatRequest{
+		Prompt: llm.Message{Role: llm.RoleUser, Content: "hello"},
+	})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
 	}
@@ -58,7 +60,9 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 		t.Fatalf("unexpected transcript length after first exchange: %d", got)
 	}
 
-	second, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "again"})
+	second, err := session.Complete(ctx, llm.ChatRequest{
+		Prompt: llm.Message{Role: llm.RoleUser, Content: "again"},
+	})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
 	}
@@ -89,7 +93,9 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 	}
 
 	session.Reset()
-	_, err = session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "after reset"})
+	_, err = session.Complete(ctx, llm.ChatRequest{
+		Prompt: llm.Message{Role: llm.RoleUser, Content: "after reset"},
+	})
 	if err != nil {
 		t.Fatalf("Complete after reset returned error: %v", err)
 	}
