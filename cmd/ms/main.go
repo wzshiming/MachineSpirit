@@ -39,7 +39,7 @@ func main() {
 		llm.WithBaseURL(BaseURL),
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("Failed to initialize LLM", "error", err)
 		os.Exit(1)
 	}
 
@@ -69,7 +69,7 @@ func main() {
 		agent.WithMaxRetries(20),
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("Failed to create agent", "error", err)
 		os.Exit(1)
 	}
 
@@ -102,7 +102,7 @@ func main() {
 
 			response, err := ag.Execute(ctx, text)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				slog.Error("Agent execution error", "error", err)
 				return
 			}
 

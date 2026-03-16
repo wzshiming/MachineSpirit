@@ -2,6 +2,7 @@ package skills
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,8 +78,7 @@ func (l *SkillLoader) LoadAllSkills() ([]*MarkdownSkill, error) {
 		if !info.IsDir() && (info.Name() == "SKILL.md") {
 			skill, err := l.LoadSkill(path)
 			if err != nil {
-				// Log error but continue loading other skills
-				fmt.Fprintf(os.Stderr, "Warning: failed to load skill from %s: %v\n", path, err)
+				slog.Warn("Failed to load skill", "path", path, "error", err)
 				return nil
 			}
 			skills = append(skills, skill)
