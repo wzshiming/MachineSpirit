@@ -19,8 +19,8 @@ func TestOpenAIProviderComplete(t *testing.T) {
 	var captured struct {
 		Model    string `json:"model"`
 		Messages []struct {
-			Role    string      `json:"role"`
-			Content interface{} `json:"content"`
+			Role    string `json:"role"`
+			Content any    `json:"content"`
 		} `json:"messages"`
 	}
 

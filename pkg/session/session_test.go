@@ -1,19 +1,21 @@
-package llm
+package session
 
 import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
 )
 
 type stubLLM struct {
-	requests []ChatRequest
+	requests []llm.ChatRequest
 }
 
-func (s *stubLLM) Complete(ctx context.Context, req ChatRequest) (Message, error) {
+func (s *stubLLM) Complete(ctx context.Context, req llm.ChatRequest) (llm.Message, error) {
 	s.requests = append(s.requests, req)
-	return Message{
-		Role:      RoleAssistant,
+	return llm.Message{
+		Role:      llm.RoleAssistant,
 		Content:   "reply: " + req.Prompt.Content,
 		Timestamp: time.Unix(1, 0),
 	}, nil
@@ -22,16 +24,13 @@ func (s *stubLLM) Complete(ctx context.Context, req ChatRequest) (Message, error
 func TestSessionCompleteTracksTranscript(t *testing.T) {
 	ctx := context.Background()
 	provider := &stubLLM{}
-	seedTranscript := []Message{
-		{Role: RoleAssistant, Content: "seed"},
+	seedTranscript := []llm.Message{
+		{Role: llm.RoleAssistant, Content: "seed"},
 	}
 
-	session := NewSession(provider, SessionConfig{
-		SystemPrompt: "You are helpful",
-		Transcript:   seedTranscript,
-	})
+	session := NewSession(provider, WithSystemPrompt("You are helpful"), WithTranscript(seedTranscript))
 
-	first, err := session.Complete(ctx, Message{Role: RoleUser, Content: "hello"})
+	first, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "hello"})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
 	}
@@ -49,7 +48,7 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 	if len(req1.Transcript) != len(seedTranscript) {
 		t.Fatalf("expected seed transcript forwarded, got %d messages", len(req1.Transcript))
 	}
-	if req1.Prompt.Role != RoleUser {
+	if req1.Prompt.Role != llm.RoleUser {
 		t.Fatalf("prompt role not preserved, got %s", req1.Prompt.Role)
 	}
 	if req1.Prompt.Timestamp.IsZero() {
@@ -59,7 +58,7 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 		t.Fatalf("unexpected transcript length after first exchange: %d", got)
 	}
 
-	second, err := session.Complete(ctx, Message{Role: RoleUser, Content: "again"})
+	second, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "again"})
 	if err != nil {
 		t.Fatalf("Complete returned error: %v", err)
 	}
@@ -74,7 +73,7 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 	if len(req2.Transcript) != len(seedTranscript)+2 {
 		t.Fatalf("expected prior exchange forwarded, got %d messages", len(req2.Transcript))
 	}
-	expectedRoles := []Role{RoleAssistant, RoleUser, RoleAssistant}
+	expectedRoles := []llm.Role{llm.RoleAssistant, llm.RoleUser, llm.RoleAssistant}
 	for i, role := range expectedRoles {
 		if req2.Transcript[i].Role != role {
 			t.Fatalf("unexpected role at %d: %s", i, req2.Transcript[i].Role)
@@ -90,7 +89,7 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 	}
 
 	session.Reset()
-	_, err = session.Complete(ctx, Message{Role: RoleUser, Content: "after reset"})
+	_, err = session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: "after reset"})
 	if err != nil {
 		t.Fatalf("Complete after reset returned error: %v", err)
 	}

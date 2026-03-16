@@ -3,9 +3,11 @@ module github.com/wzshiming/MachineSpirit
 go 1.25.0
 
 require (
+	github.com/RealAlexandreAI/json-repair v0.0.15
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/openai/openai-go/v3 v3.26.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
