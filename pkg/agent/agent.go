@@ -11,11 +11,13 @@ import (
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
 // Agent orchestrates multi-step reasoning with tool calling and memory.
 type Agent struct {
+	pm         *persistence.PersistenceManager
 	session    *session.Session
 	tools      map[string]Tool
 	skills     *skills.Skills
@@ -47,6 +49,13 @@ func WithMaxRetries(max int) opt {
 	}
 }
 
+// WithPersistenceManager sets the persistence manager for the agent.
+func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
+	return func(a *Agent) {
+		a.pm = pm
+	}
+}
+
 // NewAgent creates a new agent with the given configuration.
 func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	if session == nil {
@@ -72,10 +81,15 @@ func (a *Agent) Execute(ctx context.Context, userInput string) (string, error) {
 	enhancedPrompt := a.buildPrompt(userInput)
 
 	// Decision-making: initial LLM call
-	response, err := a.session.Complete(ctx, llm.Message{
-		Role:    llm.RoleUser,
-		Content: enhancedPrompt,
-	})
+	response, err := a.session.Complete(ctx,
+		llm.ChatRequest{
+			SystemPrompt: a.pm.BuildSystemPrompt(""),
+			Prompt: llm.Message{
+				Role:    llm.RoleUser,
+				Content: enhancedPrompt,
+			},
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("initial completion failed: %w", err)
 	}
@@ -114,10 +128,16 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 	}
 
 	// Get the next response from the LLM
-	nextResponse, err := a.session.Complete(ctx, llm.Message{
-		Role:    llm.RoleUser,
-		Content: feedbackPrompt,
-	})
+	nextResponse, err := a.session.Complete(ctx,
+		llm.ChatRequest{
+			SystemPrompt: a.pm.BuildSystemPrompt(""),
+			Prompt: llm.Message{
+				Role:    llm.RoleUser,
+				Content: feedbackPrompt,
+			},
+		},
+	)
+
 	if err != nil {
 		return "", fmt.Errorf("feedback completion failed: %w", err)
 	}

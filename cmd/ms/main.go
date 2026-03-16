@@ -13,6 +13,7 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -32,6 +33,14 @@ func init() {
 }
 
 func main() {
+	// Initialize persistence manager
+	pm, err := persistence.NewPersistenceManager("")
+	if err != nil {
+		slog.Error("Failed to initialize persistence manager", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize LLM
 	llm, err := llm.NewLLM(
 		llm.WithProvider(Name),
 		llm.WithModel(Model),
@@ -44,17 +53,19 @@ func main() {
 	}
 
 	ctx := context.Background()
-	session := session.NewSession(llm,
-		session.WithSystemPrompt("You are a helpful coding assistant with access to shell commands and file operations."),
-	)
+
+	session := session.NewSession(llm)
 
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
+		tools.NewWriteTool(),
+		tools.NewReadTool(),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
 	ag, err := agent.NewAgent(
 		session,
+		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
 		agent.WithSkills(skillsList),
 		agent.WithMaxRetries(20),
@@ -79,6 +90,7 @@ func main() {
 					fmt.Println("  /bye      - Exit the program")
 					fmt.Println("  /skills   - List available skills")
 					fmt.Println("  /tools    - List available tools")
+					fmt.Println("  /complete_bootstrap - Mark bootstrap as complete and delete BOOTSTRAP.md")
 					return
 				} else if strings.HasPrefix(text, "/reset") {
 					session.Reset()
@@ -97,6 +109,12 @@ func main() {
 					fmt.Println("Available Tools:")
 					for _, tool := range toolsList {
 						fmt.Printf("- %s: %s\n", tool.Name(), tool.Description())
+					}
+				} else if strings.HasPrefix(text, "/complete_bootstrap") {
+					if err := pm.DeleteFile(persistence.FileBootstrap); err != nil {
+						fmt.Fprintf(os.Stderr, "Error deleting bootstrap: %v\n", err)
+					} else {
+						fmt.Println("Bootstrap completed and BOOTSTRAP.md deleted.")
 					}
 					return
 				} else {
@@ -123,6 +141,7 @@ func main() {
 				{Text: "/bye", Description: "Exit the program"},
 				{Text: "/skills", Description: "List available skills"},
 				{Text: "/tools", Description: "List available tools"},
+				{Text: "/complete_bootstrap", Description: "Complete bootstrap and delete BOOTSTRAP.md"},
 			}
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},

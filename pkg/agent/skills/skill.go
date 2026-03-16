@@ -19,15 +19,6 @@ type Skill struct {
 	path        string
 }
 
-// NewMarkdownSkill creates a skill from markdown content.
-func NewMarkdownSkill(path, name, description string) *Skill {
-	return &Skill{
-		path:        path,
-		name:        name,
-		description: description,
-	}
-}
-
 func (s *Skill) Name() string {
 	return s.name
 }
@@ -119,5 +110,9 @@ func ParseSkillMarkdown(content string, path string) (*Skill, error) {
 		return nil, fmt.Errorf("failed to parse YAML frontmatter: %w", err)
 	}
 
-	return NewMarkdownSkill(path, data.Name, data.Description), nil
+	return &Skill{
+		name:        data.Name,
+		description: data.Description,
+		path:        path,
+	}, nil
 }

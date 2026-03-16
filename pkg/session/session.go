@@ -46,23 +46,36 @@ func NewSession(l llm.LLM, opts ...opt) *Session {
 }
 
 // Complete sends the prompt through the underlying LLM and records the exchange.
-func (s *Session) Complete(ctx context.Context, prompt llm.Message) (llm.Message, error) {
+func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Message, error) {
 	if s.llm == nil {
 		return llm.Message{}, errors.New("llm provider is required")
 	}
 
+	os.Stderr.WriteString("=== LLM Request ===\n")
+	os.Stderr.WriteString(req.Prompt.Content + "\n")
+	os.Stderr.WriteString("====================\n")
+
+	var history []llm.Message
+	if s.transcript != nil {
+		history = append(history, s.transcript...)
+	}
+	if req.Transcript != nil {
+		history = append(history, req.Transcript...)
+	}
+
+	systemPrompt := s.systemPrompt
+	if req.SystemPrompt != "" {
+		systemPrompt = req.SystemPrompt
+	}
+	prompt := req.Prompt
+	if prompt.Role == "" {
+		prompt.Role = llm.RoleUser
+	}
 	if prompt.Timestamp.IsZero() {
 		prompt.Timestamp = time.Now()
 	}
-
-	history := append([]llm.Message(nil), s.transcript...)
-
-	os.Stderr.WriteString("=== LLM Request ===\n")
-	os.Stderr.WriteString(prompt.Content + "\n")
-	os.Stderr.WriteString("====================\n")
-
 	resp, err := s.llm.Complete(ctx, llm.ChatRequest{
-		SystemPrompt: s.systemPrompt,
+		SystemPrompt: systemPrompt,
 		Transcript:   history,
 		Prompt:       prompt,
 	})
