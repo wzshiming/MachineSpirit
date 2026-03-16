@@ -58,7 +58,6 @@ func (p anthropicProvider) Complete(ctx context.Context, req ChatRequest) (Messa
 		switch b := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			content = b.Text
-			break
 		}
 		if content != "" {
 			break
