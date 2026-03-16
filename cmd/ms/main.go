@@ -102,11 +102,45 @@ func main() {
 
 	session := session.NewSession(llm)
 
-	toolsList := []agent.Tool{
+	// Basic tools that can be used by both master agent and subagents
+	basicTools := []agent.Tool{
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 	}
+
+	// Create approval function for subagent actions
+	approvalFunc := func(ctx context.Context, action string) (bool, error) {
+		fmt.Printf("\n⚠️  Subagent requesting approval:\n%s\n", action)
+		fmt.Print("Approve? (y/n): ")
+		var response string
+		fmt.Scanln(&response)
+		approved := strings.ToLower(strings.TrimSpace(response)) == "y"
+		if approved {
+			fmt.Println("✓ Approved")
+		} else {
+			fmt.Println("✗ Denied")
+		}
+		return approved, nil
+	}
+
+	// Create observer function for subagent progress
+	observerFunc := func(message string) {
+		fmt.Printf("  %s\n", message)
+	}
+
+	// Create subagent tool with access to basic tools
+	subagentTool := tools.NewSubAgentTool(
+		llm,
+		pm,
+		basicTools,
+		approvalFunc,
+		observerFunc,
+	)
+
+	// Full tools list for the master agent includes subagent tool
+	toolsList := append(basicTools, subagentTool)
+
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
 	ag, err := agent.NewAgent(
