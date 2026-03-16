@@ -12,7 +12,7 @@ type ChatRequest struct {
 	Transcript   []Message
 }
 
-// provider abstracts a chat completion backend (OpenAI, Anthropic, etc).
+// LLM defines the interface for language model providers. It abstracts away provider-specific details and allows for interchangeable implementations.
 type LLM interface {
 	Complete(ctx context.Context, req ChatRequest) (Message, error)
 }

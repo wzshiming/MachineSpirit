@@ -4,11 +4,16 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
+	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
 var (
@@ -27,8 +32,7 @@ func init() {
 }
 
 func main() {
-
-	l, err := llm.NewLLM(
+	llm, err := llm.NewLLM(
 		llm.WithProvider(Name),
 		llm.WithModel(Model),
 		llm.WithAPIKey(APIKey),
@@ -40,35 +44,74 @@ func main() {
 	}
 
 	ctx := context.Background()
-	session := llm.NewSession(l, llm.SessionConfig{
-		SystemPrompt: "You are helpful",
-	})
+	session := session.NewSession(llm,
+		session.WithSystemPrompt("You are a helpful coding assistant with access to shell commands and file operations."),
+	)
+
+	skillList := []agent.Skill{}
+
+	for _, skillsDir := range []string{os.Getenv("HOME") + "/.agents/skills", ".agents/skills"} {
+		loader := skills.NewSkillLoader(skillsDir)
+		skillsList, err := loader.LoadAllSkills()
+		if err != nil {
+			slog.Warn("Failed to load skills from directory", "dir", skillsDir, "error", err)
+			os.Exit(1)
+		}
+		for _, skill := range skillsList {
+			skillList = append(skillList, skill)
+		}
+	}
+
+	ag, err := agent.NewAgent(
+		session,
+		agent.WithTools(tools.NewBashTool()),
+		agent.WithSkills(skillList...),
+		agent.WithMaxRetries(20),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
-			if strings.HasPrefix(text, "/help") {
-				fmt.Println("Enter your message to chat with the LLM. Use /reset to start a new session, /bye to exit.")
+			if text == "" {
 				return
 			}
-			if strings.HasPrefix(text, "/reset") {
-				session.Reset()
-				fmt.Println("Session cleared.")
-				return
-			}
-			if strings.HasPrefix(text, "/bye") {
-				fmt.Println("Goodbye!")
-				os.Exit(0)
-			}
-			env, err := session.Complete(ctx, llm.Message{Role: llm.RoleUser, Content: text})
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				os.Exit(1)
+			if strings.HasPrefix(text, "/") {
+				if strings.HasPrefix(text, "/help") {
+					fmt.Println("Enter your message to interact with the agent.")
+					fmt.Println("Commands:")
+					fmt.Println("  /help     - Show this help message")
+					fmt.Println("  /reset    - Clear the session")
+					fmt.Println("  /bye      - Exit the program")
+					return
+				} else if strings.HasPrefix(text, "/reset") {
+					session.Reset()
+					fmt.Println("Session cleared.")
+					return
+				} else if strings.HasPrefix(text, "/bye") {
+					fmt.Println("Goodbye!")
+					os.Exit(0)
+				} else {
+					fmt.Println("Unknown command. Type /help for a list of commands.")
+					return
+				}
 			}
 
-			fmt.Println(env.Content)
+			response, err := ag.Execute(ctx, text)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return
+			}
+
+			fmt.Println(response)
 		},
 		func(in prompt.Document) []prompt.Suggest {
+			if in.Text == "" || !strings.HasPrefix(in.Text, "/") {
+				return nil
+			}
 			s := []prompt.Suggest{
 				{Text: "/help", Description: "Show the help message"},
 				{Text: "/reset", Description: "Clear the current session"},
