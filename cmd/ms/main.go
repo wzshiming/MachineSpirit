@@ -8,12 +8,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -23,22 +25,65 @@ var (
 	APIKey       string
 	BaseURL      string
 	WorkspaceDir string
+	Locale       string
 )
 
 func init() {
+	dir, _ := os.Getwd()
+	WorkspaceDir = dir
+
 	flag.StringVar(&Name, "provider", "openai", "LLM provider: openai or anthropic")
 	flag.StringVar(&Model, "model", "", "Model name (optional, provider default used if empty)")
 	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
 	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
-	flag.StringVar(&WorkspaceDir, "workspace", "", "Path to workspace directory (optional)")
+	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
+	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh'). Auto-detected from USER.md if not specified.")
 	flag.Parse()
 }
 
 func main() {
-	pm, err := persistence.NewPersistenceManager("")
+	pm, err := persistence.NewPersistenceManager(WorkspaceDir)
 	if err != nil {
 		slog.Error("Failed to initialize persistence manager", "error", err)
 		os.Exit(1)
+	}
+
+	// Initialize workspace with templates if needed
+	var detectedLocale string
+	if Locale == "" {
+		// Auto-detect system locale
+		tag, err := locale.Detect()
+		if err != nil {
+			slog.Warn("Failed to detect system locale, defaulting to English", "error", err)
+			detectedLocale = "en"
+		} else {
+			// Get the language tag base (e.g., "zh" from "zh-CN")
+			lang := tag.String()
+			// Map to supported locales: zh for Chinese, en for everything else
+			if strings.HasPrefix(lang, "zh") {
+				detectedLocale = "zh"
+			} else {
+				detectedLocale = "en"
+			}
+			slog.Info("Detected system locale", "language", lang, "mapped_to", detectedLocale)
+		}
+	} else {
+		detectedLocale = Locale
+	}
+
+	// Initialize workspace files from templates if they don't exist
+	if err := i18n.InitializeWorkspace(pm.GetBaseDir(), detectedLocale); err != nil {
+		slog.Warn("Failed to initialize workspace templates", "error", err)
+	}
+
+	// Set up locale for i18n
+	if Locale != "" {
+		// Explicit locale flag takes precedence
+		if err := pm.SetLocale(Locale); err != nil {
+			slog.Error("Invalid locale", "locale", Locale, "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Using locale from command line flag", "locale", Locale)
 	}
 
 	// Initialize LLM
@@ -110,6 +155,11 @@ func main() {
 					for _, tool := range toolsList {
 						fmt.Printf("- %s: %s\n", tool.Name(), tool.Description())
 					}
+				} else if strings.HasPrefix(text, "/system-prompt") {
+					prompt := pm.BuildSystemPrompt("")
+					fmt.Println("Current System Prompt:")
+					fmt.Println(prompt)
+					return
 				} else {
 					fmt.Println("Unknown command. Type /help for a list of commands.")
 					return
@@ -134,7 +184,7 @@ func main() {
 				{Text: "/bye", Description: "Exit the program"},
 				{Text: "/skills", Description: "List available skills"},
 				{Text: "/tools", Description: "List available tools"},
-				{Text: "/complete_bootstrap", Description: "Complete bootstrap and delete BOOTSTRAP.md"},
+				{Text: "/system-prompt", Description: "Show the current system prompt"},
 			}
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},

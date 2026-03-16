@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/RealAlexandreAI/json-repair v0.0.15
+	github.com/Xuanwo/go-locale v1.1.3
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/openai/openai-go/v3 v3.26.0
@@ -22,4 +23,5 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 )

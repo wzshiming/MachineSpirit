@@ -4,64 +4,62 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-)
-
-const (
-	// FileMemory stores persistent information and context
-	FileMemory = "MEMORY.md"
-	// FileIdentity stores agent identity and personality
-	FileIdentity = "IDENTITY.md"
-	// FileAgents stores information about other agents
-	FileAgents = "AGENTS.md"
-	// FileSoul stores agent identity and personality
-	FileSoul = "SOUL.md"
-	// FileUser stores user information and preferences
-	FileUser = "USER.md"
-	// FileBootstrap stores initial greeting and setup instructions (deleted after boot)
-	FileBootstrap = "BOOTSTRAP.md"
-	// FileTools stores information about available tools (optional, can be generated from agent configuration)
-	FileTools = "TOOLS.md"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 )
 
 // PersistenceManager handles loading and saving persistence files
 type PersistenceManager struct {
 	baseDir string
 	items   []string
+	locale  string // e.g., "en", "zh" - empty means default/no locale
 }
 
 // NewPersistenceManager creates a new persistence manager
 // If baseDir is empty, uses the current working directory
 func NewPersistenceManager(baseDir string) (*PersistenceManager, error) {
 	if baseDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
-		}
-		baseDir = cwd
+		return nil, fmt.Errorf("base directory is required for persistence manager")
 	}
 
 	return &PersistenceManager{
 		baseDir: baseDir,
 		items: []string{
-			FileBootstrap,
-			FileSoul,
-			FileAgents,
-			FileIdentity,
-			FileUser,
-			FileTools,
-			FileMemory,
+			i18n.FileBootstrap,
+			i18n.FileSoul,
+			i18n.FileAgents,
+			i18n.FileIdentity,
+			i18n.FileUser,
+			i18n.FileTools,
+			i18n.FileMemory,
 		},
 	}, nil
 }
 
-// getFilePath returns the full path to a persistence file
+// SetLocale sets the locale for internationalized prompt loading
+// Only "en" and "zh" locales are currently supported
+func (pm *PersistenceManager) SetLocale(locale string) error {
+	if err := i18n.ValidateLocale(locale); err != nil {
+		return err
+	}
+	pm.locale = locale
+	return nil
+}
+
+// GetLocale returns the current locale setting
+func (pm *PersistenceManager) GetLocale() string {
+	return pm.locale
+}
+
+// GetBaseDir returns the base directory
+func (pm *PersistenceManager) GetBaseDir() string {
+	return pm.baseDir
+}
+
 func (pm *PersistenceManager) getFilePath(filename string) string {
-	return filepath.Join(pm.baseDir, filename)
+	return i18n.GetLocalizedFilePath(pm.baseDir, filename, pm.locale)
 }
 
 // BuildSystemPrompt constructs a system prompt from persistence files
@@ -78,7 +76,10 @@ func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
 
 	parts = append(parts, fmt.Sprintf("Current time %s, zone %s (UTC%+d)", now.Format(time.RFC3339), zone, offset/3600))
 
+	parts = append(parts, fmt.Sprintf("Workspace %s", pm.baseDir))
+
 	for _, item := range pm.items {
+
 		path := pm.getFilePath(item)
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -87,42 +88,16 @@ func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
 			}
 			continue
 		}
+
 		content := string(raw)
 		content = strings.TrimSpace(content)
 		if content == "" {
 			continue
 		}
 
-		meta, content, err := parseMarkdown(content)
-		if err == nil {
-			if meta != nil {
-				parts = append(parts, fmt.Sprintf("# %s (%s): %s\n%s", item, path, meta.Summary, content))
-			} else {
-				parts = append(parts, fmt.Sprintf("# %s (%s):\n%s", item, path, content))
-			}
-		}
+		parts = append(parts, content)
+
 	}
 
 	return strings.Join(parts, "\n\n")
-}
-
-type metadata struct {
-	Summary  string   `yaml:"summary"`
-	ReadWhen []string `yaml:"read_when"`
-}
-
-func parseMarkdown(content string) (*metadata, string, error) {
-	// Split frontmatter and content
-	parts := strings.SplitN(content, "---", 3)
-	if len(parts) < 3 {
-		return nil, content, nil
-	}
-
-	// Parse YAML frontmatter
-	var data *metadata
-	if err := yaml.Unmarshal([]byte(parts[1]), &data); err != nil {
-		return nil, "", fmt.Errorf("failed to parse YAML frontmatter: %w", err)
-	}
-
-	return data, parts[2], nil
 }

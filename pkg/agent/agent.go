@@ -22,6 +22,7 @@ type Agent struct {
 	tools      map[string]Tool
 	skills     *skills.Skills
 	maxRetries int
+	strings    AgentStrings
 }
 
 type opt func(*Agent)
@@ -71,6 +72,13 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	for _, o := range opts {
 		o(agent)
 	}
+
+	// Initialize localized strings based on persistence manager's locale
+	locale := "en"
+	if agent.pm != nil {
+		locale = agent.pm.GetLocale()
+	}
+	agent.strings = GetStrings(locale)
 
 	return agent, nil
 }
@@ -124,7 +132,7 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 
 	// If we have errors and haven't exceeded retry limit, allow replanning
 	if hasErrors && retryCount < a.maxRetries {
-		feedbackPrompt += fmt.Sprintf("\n\nSome tools failed. Please replan or provide an alternative solution. (Attempt %d/%d)", retryCount+1, a.maxRetries)
+		feedbackPrompt += fmt.Sprintf(a.strings.ReplanPrompt, retryCount+1, a.maxRetries)
 	}
 
 	// Get the next response from the LLM
@@ -227,29 +235,29 @@ func parseToolCalls(response string) []toolCall {
 func (a *Agent) buildPrompt(userInput string) string {
 	var sb strings.Builder
 
-	sb.WriteString("You are an intelligent agent that can use tools and skills to accomplish tasks.\n\n")
+	sb.WriteString(a.strings.IntroPrompt)
 
 	// List available skills (higher-level capabilities)
 	if a.skills != nil {
-		sb.WriteString("## Available Skills (High-level capabilities):\n")
+		sb.WriteString(a.strings.AvailableSkillsHeader)
 		for _, skill := range a.skills.List() {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Path(), skill.Description()))
 		}
-		sb.WriteString("Use skills for complex, multi-step operations when available.\n\n")
+		sb.WriteString(a.strings.UseSkillsHint)
 	}
 
 	// List available tools (low-level operations)
 	if len(a.tools) > 0 {
-		sb.WriteString("## Available Tools (Low-level operations):\n")
+		sb.WriteString(a.strings.AvailableToolsHeader)
 		for _, tool := range a.tools {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 		}
-		sb.WriteString("To use a tool, respond with: <tool_call>{\"tool\": \"name\", \"input\": {...}}</tool_call>\n")
-		sb.WriteString("You can make multiple tool calls in a single response.\n")
-		sb.WriteString("Prefer using skills for complex, multi-step operations when available.\n\n")
+		sb.WriteString(a.strings.ToolCallInstructions)
+		sb.WriteString(a.strings.MultipleToolCallsHint)
+		sb.WriteString(a.strings.PreferSkillsHint)
 	}
 
-	sb.WriteString("## User Request:\n")
+	sb.WriteString(a.strings.UserRequestHeader)
 	sb.WriteString(userInput)
 
 	return sb.String()
@@ -259,20 +267,20 @@ func (a *Agent) buildPrompt(userInput string) string {
 func (a *Agent) buildFeedbackPrompt(calls []toolCall, results []toolResult, hasErrors bool) string {
 	var sb strings.Builder
 
-	sb.WriteString("## Tool Execution Results:\n\n")
+	sb.WriteString(a.strings.ToolExecutionResultsHeader)
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf("### Tool: %s\n", result.Tool))
-		sb.WriteString(fmt.Sprintf("Input: %s\n", string(calls[i].Input)))
+		sb.WriteString(fmt.Sprintf(a.strings.ToolHeader, result.Tool))
+		sb.WriteString(fmt.Sprintf(a.strings.InputLabel, string(calls[i].Input)))
 		if result.Error != "" {
-			sb.WriteString(fmt.Sprintf("Error: %s\n", result.Error))
+			sb.WriteString(fmt.Sprintf(a.strings.ErrorLabel, result.Error))
 		} else {
-			sb.WriteString(fmt.Sprintf("Output: %s\n", string(result.Output)))
+			sb.WriteString(fmt.Sprintf(a.strings.OutputLabel, string(result.Output)))
 		}
 		sb.WriteString("\n")
 	}
 
 	if !hasErrors {
-		sb.WriteString("Based on these results, provide a final response to the user.\n")
+		sb.WriteString(a.strings.FinalResponsePrompt)
 	}
 
 	return sb.String()
