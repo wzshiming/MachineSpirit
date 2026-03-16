@@ -48,10 +48,15 @@ func main() {
 		session.WithSystemPrompt("You are a helpful coding assistant with access to shell commands and file operations."),
 	)
 
+	toolsList := []agent.Tool{
+		tools.NewBashTool(),
+	}
+	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
+
 	ag, err := agent.NewAgent(
 		session,
-		agent.WithTools(tools.NewBashTool()),
-		agent.WithSkills(skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")),
+		agent.WithTools(toolsList...),
+		agent.WithSkills(skillsList),
 		agent.WithMaxRetries(20),
 	)
 	if err != nil {
@@ -72,6 +77,8 @@ func main() {
 					fmt.Println("  /help     - Show this help message")
 					fmt.Println("  /reset    - Clear the session")
 					fmt.Println("  /bye      - Exit the program")
+					fmt.Println("  /skills   - List available skills")
+					fmt.Println("  /tools    - List available tools")
 					return
 				} else if strings.HasPrefix(text, "/reset") {
 					session.Reset()
@@ -80,6 +87,18 @@ func main() {
 				} else if strings.HasPrefix(text, "/bye") {
 					fmt.Println("Goodbye!")
 					os.Exit(0)
+				} else if strings.HasPrefix(text, "/skills") {
+					fmt.Println("Available Skills:")
+					for _, skill := range skillsList.List() {
+						fmt.Printf("- %s: %s\n", skill.Path(), skill.Description())
+					}
+					return
+				} else if strings.HasPrefix(text, "/tools") {
+					fmt.Println("Available Tools:")
+					for _, tool := range toolsList {
+						fmt.Printf("- %s: %s\n", tool.Name(), tool.Description())
+					}
+					return
 				} else {
 					fmt.Println("Unknown command. Type /help for a list of commands.")
 					return
@@ -102,6 +121,8 @@ func main() {
 				{Text: "/help", Description: "Show the help message"},
 				{Text: "/reset", Description: "Clear the current session"},
 				{Text: "/bye", Description: "Exit the program"},
+				{Text: "/skills", Description: "List available skills"},
+				{Text: "/tools", Description: "List available tools"},
 			}
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},
