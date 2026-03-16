@@ -32,10 +32,10 @@ func init() {
 	dir, _ := os.Getwd()
 	WorkspaceDir = dir
 
-	flag.StringVar(&Name, "provider", "openai", "LLM provider: openai or anthropic")
+	flag.StringVar(&Name, "provider", "openai", "LLM provider: openai, anthropic, or ollama")
 	flag.StringVar(&Model, "model", "", "Model name (optional, provider default used if empty)")
-	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
-	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
+	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY; not needed for ollama)")
+	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API (default http://localhost:11434 for ollama)")
 	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
 	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh'). Auto-detected from USER.md if not specified.")
 	flag.Parse()

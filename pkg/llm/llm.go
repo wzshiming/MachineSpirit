@@ -40,7 +40,7 @@ type Message struct {
 
 // Config describes how to construct an LLM provider and agent.
 type options struct {
-	Provider string // "openai" or "anthropic"
+	Provider string // "openai", "anthropic", or "ollama"
 	Model    string
 	APIKey   string
 	BaseURL  string
@@ -99,6 +99,21 @@ func NewLLM(opts ...opt) (LLM, error) {
 		return anthropicProvider{
 			Client: client,
 			Model:  anthropic.Model(modelName),
+		}, nil
+	case "ollama":
+		client := newOllamaClient()
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = "http://localhost:11434"
+		}
+		modelName := cfg.Model
+		if modelName == "" {
+			modelName = "llama3.2"
+		}
+		return ollamaProvider{
+			Client:  client,
+			BaseURL: baseURL,
+			Model:   modelName,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", cfg.Provider)

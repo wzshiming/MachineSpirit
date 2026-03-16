@@ -200,3 +200,65 @@ func TestAnthropicProviderComplete(t *testing.T) {
 		t.Fatalf("expected system prompt forwarded, got %+v", captured.System)
 	}
 }
+
+func TestOllamaProviderComplete(t *testing.T) {
+	var captured ollamaChatRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		last := captured.Messages[len(captured.Messages)-1]
+		lastText := last.Content
+
+		resp := ollamaChatResponse{
+			Model:     captured.Model,
+			CreatedAt: time.Now().Format(time.RFC3339),
+			Message: ollamaMessage{
+				Role:    "assistant",
+				Content: "handled: " + lastText,
+			},
+			Done: true,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := ollamaProvider{
+		Client:  &http.Client{},
+		BaseURL: server.URL,
+		Model:   "llama3.2",
+	}
+
+	resp, err := provider.Complete(context.Background(), ChatRequest{
+		SystemPrompt: "You are helpful",
+		Transcript: []Message{
+			{Role: RoleAssistant, Content: "prior answer"},
+		},
+		Prompt: Message{Role: RoleUser, Content: "current question"},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Content != "handled: current question" {
+		t.Fatalf("unexpected reply content: %q", resp.Content)
+	}
+
+	if len(captured.Messages) != 3 {
+		t.Fatalf("expected 3 messages sent (system + transcript + prompt), got %d", len(captured.Messages))
+	}
+	if captured.Messages[0].Role != "system" {
+		t.Fatalf("expected system message first, got role %s", captured.Messages[0].Role)
+	}
+	if captured.Model != "llama3.2" {
+		t.Fatalf("expected model llama3.2, got %s", captured.Model)
+	}
+}
