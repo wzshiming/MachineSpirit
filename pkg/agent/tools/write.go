@@ -21,7 +21,7 @@ func (t *WriteTool) Name() string {
 }
 
 func (t *WriteTool) Description() string {
-	return "Write content to a  file. {\"path\": \"/path/to/file\", \"content\": \"new content\"}."
+	return "Write content to a file. {\"path\": \"/path/to/file\", \"content\": \"new content\"}."
 }
 
 func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
