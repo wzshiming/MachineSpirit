@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/ollama/ollama/api"
 	openai "github.com/openai/openai-go/v3"
 	openaioption "github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
@@ -202,7 +204,11 @@ func TestAnthropicProviderComplete(t *testing.T) {
 }
 
 func TestOllamaProviderComplete(t *testing.T) {
-	var captured ollamaChatRequest
+	var captured struct {
+		Model    string        `json:"model"`
+		Messages []api.Message `json:"messages"`
+		Stream   *bool         `json:"stream"`
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/chat" {
@@ -217,14 +223,14 @@ func TestOllamaProviderComplete(t *testing.T) {
 		last := captured.Messages[len(captured.Messages)-1]
 		lastText := last.Content
 
-		resp := ollamaChatResponse{
-			Model:     captured.Model,
-			CreatedAt: time.Now().Format(time.RFC3339),
-			Message: ollamaMessage{
-				Role:    "assistant",
-				Content: "handled: " + lastText,
+		resp := map[string]any{
+			"model":      captured.Model,
+			"created_at": time.Now().Format(time.RFC3339),
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": "handled: " + lastText,
 			},
-			Done: true,
+			"done": true,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -232,10 +238,12 @@ func TestOllamaProviderComplete(t *testing.T) {
 	}))
 	defer server.Close()
 
+	u, _ := url.Parse(server.URL)
+	client := api.NewClient(u, &http.Client{})
+
 	provider := ollamaProvider{
-		Client:  &http.Client{},
-		BaseURL: server.URL,
-		Model:   "llama3.2",
+		Client: client,
+		Model:  "llama3.2",
 	}
 
 	resp, err := provider.Complete(context.Background(), ChatRequest{

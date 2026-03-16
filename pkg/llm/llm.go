@@ -101,19 +101,17 @@ func NewLLM(opts ...opt) (LLM, error) {
 			Model:  anthropic.Model(modelName),
 		}, nil
 	case "ollama":
-		client := newOllamaClient()
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
+		client, err := newOllamaClient(cfg.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ollama client: %w", err)
 		}
 		modelName := cfg.Model
 		if modelName == "" {
 			modelName = "llama3.2"
 		}
 		return ollamaProvider{
-			Client:  client,
-			BaseURL: baseURL,
-			Model:   modelName,
+			Client: client,
+			Model:  modelName,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", cfg.Provider)
