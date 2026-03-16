@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
+	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
@@ -17,7 +18,7 @@ import (
 type Agent struct {
 	session    *session.Session
 	tools      map[string]Tool
-	skills     map[string]Skill
+	skills     *skills.Skills
 	maxRetries int
 }
 
@@ -33,11 +34,9 @@ func WithTools(tools ...Tool) opt {
 }
 
 // WithSkills sets the skills available to the agent.
-func WithSkills(skills ...Skill) opt {
+func WithSkills(skills *skills.Skills) opt {
 	return func(a *Agent) {
-		for _, skill := range skills {
-			a.skills[skill.Name()] = skill
-		}
+		a.skills = skills
 	}
 }
 
@@ -57,7 +56,6 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	agent := &Agent{
 		session:    session,
 		tools:      make(map[string]Tool),
-		skills:     make(map[string]Skill),
 		maxRetries: 3,
 	}
 
@@ -212,11 +210,12 @@ func (a *Agent) buildPrompt(userInput string) string {
 	sb.WriteString("You are an intelligent agent that can use tools and skills to accomplish tasks.\n\n")
 
 	// List available skills (higher-level capabilities)
-	if len(a.skills) > 0 {
+	if a.skills != nil {
 		sb.WriteString("## Available Skills (High-level capabilities):\n")
-		for _, skill := range a.skills {
+		for _, skill := range a.skills.List() {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Path(), skill.Description()))
 		}
+		sb.WriteString("Use skills for complex, multi-step operations when available.\n\n")
 	}
 
 	// List available tools (low-level operations)
@@ -225,8 +224,6 @@ func (a *Agent) buildPrompt(userInput string) string {
 		for _, tool := range a.tools {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 		}
-		sb.WriteString("\n")
-
 		sb.WriteString("To use a tool, respond with: <tool_call>{\"tool\": \"name\", \"input\": {...}}</tool_call>\n")
 		sb.WriteString("You can make multiple tool calls in a single response.\n")
 		sb.WriteString("Prefer using skills for complex, multi-step operations when available.\n\n")

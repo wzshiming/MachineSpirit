@@ -10,49 +10,49 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MarkdownSkill represents an instruction-based skill loaded from a markdown file.
+// Skill represents an instruction-based skill loaded from a markdown file.
 // This follows the Anthropic Skills pattern where skills are instructional guides
 // rather than executable code.
-type MarkdownSkill struct {
+type Skill struct {
 	name        string
 	description string
 	path        string
 }
 
 // NewMarkdownSkill creates a skill from markdown content.
-func NewMarkdownSkill(path, name, description string) *MarkdownSkill {
-	return &MarkdownSkill{
+func NewMarkdownSkill(path, name, description string) *Skill {
+	return &Skill{
 		path:        path,
 		name:        name,
 		description: description,
 	}
 }
 
-func (s *MarkdownSkill) Name() string {
+func (s *Skill) Name() string {
 	return s.name
 }
 
-func (s *MarkdownSkill) Description() string {
+func (s *Skill) Description() string {
 	return s.description
 }
 
 // Path returns the file path of the skill markdown.
-func (s *MarkdownSkill) Path() string {
+func (s *Skill) Path() string {
 	return s.path
 }
 
-// SkillLoader loads skills from markdown files.
-type SkillLoader struct {
+// skillLoader loads skills from markdown files.
+type skillLoader struct {
 	skillsDir string
 }
 
-// NewSkillLoader creates a new skill loader.
-func NewSkillLoader(skillsDir string) *SkillLoader {
-	return &SkillLoader{skillsDir: skillsDir}
+// newSkillLoader creates a new skill loader.
+func newSkillLoader(skillsDir string) *skillLoader {
+	return &skillLoader{skillsDir: skillsDir}
 }
 
 // LoadSkill loads a single skill from a markdown file.
-func (l *SkillLoader) LoadSkill(path string) (*MarkdownSkill, error) {
+func (l *skillLoader) LoadSkill(path string) (*Skill, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read skill file: %w", err)
@@ -62,12 +62,12 @@ func (l *SkillLoader) LoadSkill(path string) (*MarkdownSkill, error) {
 }
 
 // LoadAllSkills loads all skills from the skills directory.
-func (l *SkillLoader) LoadAllSkills() ([]*MarkdownSkill, error) {
+func (l *skillLoader) LoadAllSkills() ([]*Skill, error) {
 	if l.skillsDir == "" {
 		return nil, nil
 	}
 
-	var skills []*MarkdownSkill
+	var skills []*Skill
 
 	err := filepath.Walk(l.skillsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -106,7 +106,7 @@ type skillMetadata struct {
 }
 
 // ParseSkillMarkdown parses a markdown skill file with YAML frontmatter.
-func ParseSkillMarkdown(content string, path string) (*MarkdownSkill, error) {
+func ParseSkillMarkdown(content string, path string) (*Skill, error) {
 	// Split frontmatter and content
 	parts := strings.SplitN(content, "---", 3)
 	if len(parts) < 3 {

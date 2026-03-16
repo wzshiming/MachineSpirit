@@ -48,24 +48,10 @@ func main() {
 		session.WithSystemPrompt("You are a helpful coding assistant with access to shell commands and file operations."),
 	)
 
-	skillList := []agent.Skill{}
-
-	for _, skillsDir := range []string{os.Getenv("HOME") + "/.agents/skills", ".agents/skills"} {
-		loader := skills.NewSkillLoader(skillsDir)
-		skillsList, err := loader.LoadAllSkills()
-		if err != nil {
-			slog.Warn("Failed to load skills from directory", "dir", skillsDir, "error", err)
-			os.Exit(1)
-		}
-		for _, skill := range skillsList {
-			skillList = append(skillList, skill)
-		}
-	}
-
 	ag, err := agent.NewAgent(
 		session,
 		agent.WithTools(tools.NewBashTool()),
-		agent.WithSkills(skillList...),
+		agent.WithSkills(skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")),
 		agent.WithMaxRetries(20),
 	)
 	if err != nil {
