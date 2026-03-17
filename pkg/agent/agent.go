@@ -238,9 +238,9 @@ func (a *Agent) buildPrompt(userInput string) string {
 	sb.WriteString(a.strings.IntroPrompt)
 
 	// List available skills (higher-level capabilities)
-	if a.skills != nil {
+	if list := a.skills.List(); len(list) != 0 {
 		sb.WriteString(a.strings.AvailableSkillsHeader)
-		for _, skill := range a.skills.List() {
+		for _, skill := range list {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Path(), skill.Description()))
 		}
 		sb.WriteString(a.strings.UseSkillsHint)
