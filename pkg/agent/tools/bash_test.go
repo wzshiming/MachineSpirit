@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func mustMarshal(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("failed to marshal input: %v", err)
+	}
+	return data
+}
+
 func TestBashTool_Name(t *testing.T) {
 	tool := NewBashTool()
 	if tool.Name() != "bash" {
@@ -15,7 +24,7 @@ func TestBashTool_Name(t *testing.T) {
 
 func TestBashTool_BasicCommand(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo hello",
 	})
 
@@ -42,7 +51,7 @@ func TestBashTool_BasicCommand(t *testing.T) {
 
 func TestBashTool_EmptyCommand(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "",
 	})
 
@@ -63,7 +72,7 @@ func TestBashTool_InvalidInput(t *testing.T) {
 
 func TestBashTool_Stdin(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "cat",
 		"stdin":   "hello from stdin",
 	})
@@ -88,7 +97,7 @@ func TestBashTool_Stdin(t *testing.T) {
 
 func TestBashTool_StdinMultiline(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "head -n 1",
 		"stdin":   "line1\nline2\nline3\n",
 	})
@@ -110,7 +119,7 @@ func TestBashTool_StdinMultiline(t *testing.T) {
 
 func TestBashTool_Timeout(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "sleep 10",
 		"timeout": 1,
 	})
@@ -135,7 +144,7 @@ func TestBashTool_Timeout(t *testing.T) {
 
 func TestBashTool_TimeoutWithPartialOutput(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo partial && sleep 10",
 		"timeout": 1,
 	})
@@ -160,7 +169,7 @@ func TestBashTool_TimeoutWithPartialOutput(t *testing.T) {
 
 func TestBashTool_NonZeroExit(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "exit 1",
 	})
 
@@ -184,7 +193,7 @@ func TestBashTool_NonZeroExit(t *testing.T) {
 
 func TestBashTool_Stderr(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo error_msg >&2",
 	})
 
@@ -208,7 +217,7 @@ func TestBashTool_Stderr(t *testing.T) {
 
 func TestBashTool_StdoutAndStderr(t *testing.T) {
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo out && echo err >&2",
 	})
 
@@ -233,7 +242,7 @@ func TestBashTool_StdoutAndStderr(t *testing.T) {
 func TestBashTool_StdinWithPassword(t *testing.T) {
 	// Simulates an interactive command that reads a password from stdin
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": `read -r password && echo "got: $password"`,
 		"stdin":   "mysecret\n",
 	})
@@ -259,7 +268,7 @@ func TestBashTool_StdinWithPassword(t *testing.T) {
 func TestBashTool_NoTimeoutNoStdin(t *testing.T) {
 	// Backward compatibility: calling without new params works like before
 	tool := NewBashTool()
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo backward",
 	})
 
@@ -289,7 +298,7 @@ func TestBashTool_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	input, _ := json.Marshal(map[string]any{
+	input := mustMarshal(t, map[string]any{
 		"command": "echo should not run",
 	})
 

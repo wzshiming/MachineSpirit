@@ -77,11 +77,6 @@ func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 		} else {
 			return nil, fmt.Errorf("command failed: %w", runErr)
 		}
-	} else if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-		if exitCode != 0 {
-			status = "failure"
-		}
 	}
 
 	result, err := json.Marshal(map[string]any{
