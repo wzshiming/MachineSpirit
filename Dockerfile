@@ -31,4 +31,6 @@ RUN --mount=type=cache,target=/var/cache/apk \
 
 COPY --from=builder /ms /usr/local/bin/ms
 
+WORKDIR /workspace
+
 ENTRYPOINT ["/usr/local/bin/ms"]
