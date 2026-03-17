@@ -14,6 +14,7 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/mcp"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
@@ -26,6 +27,7 @@ var (
 	BaseURL      string
 	WorkspaceDir string
 	Locale       string
+	MCPServer    string
 )
 
 func init() {
@@ -38,6 +40,7 @@ func init() {
 	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
 	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
 	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh'). Auto-detected from USER.md if not specified.")
+	flag.StringVar(&MCPServer, "mcp-server", "", "MCP server command to run (e.g., 'go run github.com/modelcontextprotocol/go-sdk/examples/server/hello')")
 	flag.Parse()
 }
 
@@ -107,6 +110,38 @@ func main() {
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 	}
+
+	// Connect to MCP server if specified
+	var mcpClient *mcp.Client
+	if MCPServer != "" {
+		// Parse the MCP server command
+		parts := strings.Fields(MCPServer)
+		if len(parts) == 0 {
+			slog.Error("Invalid MCP server command")
+			os.Exit(1)
+		}
+
+		slog.Info("Connecting to MCP server", "command", MCPServer)
+		var err error
+		mcpClient, err = mcp.NewClient(ctx, parts[0], parts[1:]...)
+		if err != nil {
+			slog.Error("Failed to connect to MCP server", "error", err)
+			os.Exit(1)
+		}
+		defer mcpClient.Close()
+
+		// Load MCP tools
+		mcpTools, err := mcp.LoadMCPTools(mcpClient)
+		if err != nil {
+			slog.Error("Failed to load MCP tools", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Loaded MCP tools", "count", len(mcpTools))
+
+		// Add MCP tools to the tools list
+		toolsList = append(toolsList, mcpTools...)
+	}
+
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
 	ag, err := agent.NewAgent(
