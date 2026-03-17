@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
+	"golang.org/x/term"
 )
 
 var (
@@ -121,6 +123,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	if !isTty() {
+		text, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			slog.Error("Read stdint error", "error", err)
+			os.Exit(1)
+		}
+		response, err := ag.Execute(ctx, string(text))
+		if err != nil {
+			slog.Error("Agent execution error", "error", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(response)
+		return
+	}
+
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
@@ -191,4 +209,8 @@ func main() {
 		prompt.OptionPrefix("> "),
 	)
 	p.Run()
+}
+
+func isTty() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
