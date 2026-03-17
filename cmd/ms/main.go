@@ -40,7 +40,7 @@ func init() {
 	flag.StringVar(&APIKey, "api-key", "", "API key for the provider (env fallback OPENAI_API_KEY or ANTHROPIC_API_KEY)")
 	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
 	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
-	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh'). Auto-detected from USER.md if not specified.")
+	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh')")
 	flag.IntVar(&MaxRetries, "max-retries", MaxRetries, "Maximum number of retries for tool execution")
 	flag.Parse()
 }
