@@ -1,10 +1,12 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"time"
 )
 
 // BashTool executes shell commands.
@@ -20,12 +22,13 @@ func (t *BashTool) Name() string {
 }
 
 func (t *BashTool) Description() string {
-	return "Execute a shell command. Returns the command output. {\"command\": \"cd /tmp && ls\"}"
+	return `Execute a shell command. {"command": "cd /tmp && ls", "timeoutSecond": 30}`
 }
 
 func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
-		Command string `json:"command"`
+		Command       string `json:"command"`
+		TimeoutSecond int    `json:"timeoutSecond"`
 	}
 
 	if err := json.Unmarshal(input, &params); err != nil {
@@ -36,23 +39,40 @@ func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 		return nil, fmt.Errorf("command is required")
 	}
 
+	if params.TimeoutSecond > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(params.TimeoutSecond)*time.Second)
+		defer cancel()
+	}
+
 	// Create command with context for cancellation
 	cmd := exec.CommandContext(ctx, "bash", "-c", params.Command)
 
-	// Capture output
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("command failed: %w\nOutput: %s", err, string(output))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	status := "success"
+	exitCode := 0
+
+	if runErr != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			status = "timeout"
+			exitCode = -1
+		} else if exitErr, ok := runErr.(*exec.ExitError); ok {
+			status = "failure"
+			exitCode = exitErr.ExitCode()
+		} else {
+			return nil, fmt.Errorf("command failed: %w", runErr)
+		}
 	}
 
-	exitCode := cmd.ProcessState.ExitCode()
-	status := "success"
-	if exitCode != 0 {
-		status = "failure"
-	}
 	result, err := json.Marshal(map[string]any{
 		"command":   params.Command,
-		"output":    string(output),
+		"stdout":    stdout.String(),
+		"stderr":    stderr.String(),
 		"status":    status,
 		"exit_code": exitCode,
 	})
