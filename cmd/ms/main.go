@@ -70,22 +70,17 @@ func main() {
 			slog.Info("Detected system locale", "language", lang, "mapped_to", detectedLocale)
 		}
 	} else {
+		// Explicit locale flag takes precedence
+		if err := pm.SetLocale(Locale); err != nil {
+			slog.Error("Invalid locale", "locale", Locale, "error", err)
+			os.Exit(1)
+		}
 		detectedLocale = Locale
 	}
 
 	// Initialize workspace files from templates if they don't exist
 	if err := i18n.InitializeWorkspace(pm.GetBaseDir(), detectedLocale); err != nil {
 		slog.Warn("Failed to initialize workspace templates", "error", err)
-	}
-
-	// Set up locale for i18n
-	if Locale != "" {
-		// Explicit locale flag takes precedence
-		if err := pm.SetLocale(Locale); err != nil {
-			slog.Error("Invalid locale", "locale", Locale, "error", err)
-			os.Exit(1)
-		}
-		slog.Info("Using locale from command line flag", "locale", Locale)
 	}
 
 	// Initialize LLM
