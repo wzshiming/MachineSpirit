@@ -28,6 +28,7 @@ var (
 	BaseURL      string
 	WorkspaceDir string
 	Locale       string
+	MaxRetries   int = 100
 )
 
 func init() {
@@ -40,6 +41,7 @@ func init() {
 	flag.StringVar(&BaseURL, "base-url", "", "Optional base URL for the provider API")
 	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
 	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh'). Auto-detected from USER.md if not specified.")
+	flag.IntVar(&MaxRetries, "max-retries", MaxRetries, "Maximum number of retries for tool execution")
 	flag.Parse()
 }
 
@@ -111,7 +113,7 @@ func main() {
 		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
 		agent.WithSkills(skillsList),
-		agent.WithMaxRetries(20),
+		agent.WithMaxRetries(MaxRetries),
 	)
 	if err != nil {
 		slog.Error("Failed to create agent", "error", err)
