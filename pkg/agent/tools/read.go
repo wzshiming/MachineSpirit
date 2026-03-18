@@ -24,6 +24,10 @@ func (t *ReadTool) Description() string {
 	return "Read the current content of a file. {\"path\": \"/path/to/file\"}."
 }
 
+func (t *ReadTool) Enabled() bool {
+	return true
+}
+
 func (t *ReadTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
 		Path string `json:"path"`

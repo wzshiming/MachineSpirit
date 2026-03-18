@@ -25,6 +25,10 @@ func (t *BashTool) Description() string {
 	return `Execute a shell command. {"command": "cd /tmp && ls", "timeoutSecond": 30}`
 }
 
+func (t *BashTool) Enabled() bool {
+	return true
+}
+
 func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
 		Command       string `json:"command"`

@@ -24,6 +24,10 @@ func (t *WriteTool) Description() string {
 	return "Write content to a file. {\"path\": \"/path/to/file\", \"content\": \"new content\"}."
 }
 
+func (t *WriteTool) Enabled() bool {
+	return true
+}
+
 func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
 		Path    string `json:"path"`
