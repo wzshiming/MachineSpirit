@@ -22,13 +22,12 @@ const minRecentMessages = 2
 
 // Session tracks conversation state across multiple LLM completions.
 type Session struct {
-	llm            llm.LLM
-	transcript     []llm.Message
-	baseTranscript []llm.Message
-	pm             *persistence.PersistenceManager
-	autoSave       bool
-	autoSaveFile   string
-	savedCount     int // Number of messages already persisted to disk
+	llm          llm.LLM
+	transcript   []llm.Message
+	pm           *persistence.PersistenceManager
+	autoSave     bool
+	autoSaveFile string
+	savedCount   int // Number of messages already persisted to disk
 }
 
 type opt func(*Session)
@@ -37,7 +36,6 @@ type opt func(*Session)
 func WithTranscript(transcript []llm.Message) opt {
 	return func(s *Session) {
 		s.transcript = append([]llm.Message(nil), transcript...)
-		s.baseTranscript = append([]llm.Message(nil), transcript...)
 	}
 }
 
@@ -136,14 +134,9 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		}
 	}
 
-	// Determine what to compress: everything after base transcript up to the recent messages
-	baseLen := len(s.baseTranscript)
 	compressEnd := len(s.transcript) - keep
-	if compressEnd <= baseLen {
-		return fmt.Errorf("not enough messages to compress after base transcript")
-	}
 
-	toCompress := s.transcript[baseLen:compressEnd]
+	toCompress := s.transcript[:compressEnd]
 	recentMessages := s.transcript[compressEnd:]
 
 	// Build the conversation text for summarization
@@ -175,20 +168,16 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		}
 	}
 
-	// Rebuild transcript: base + summary + recent
-	newTranscript := make([]llm.Message, 0, baseLen+1+len(recentMessages))
-	newTranscript = append(newTranscript, s.baseTranscript...)
-	newTranscript = append(newTranscript, llm.Message{
-		Role:      llm.RoleAssistant,
-		Content:   summaryResp.Content,
-		Timestamp: time.Now(),
-	})
-	newTranscript = append(newTranscript, recentMessages...)
+	newTranscript := append([]llm.Message{
+		llm.Message{
+			Role:      llm.RoleAssistant,
+			Content:   summaryResp.Content,
+			Timestamp: time.Now(),
+		},
+	}, recentMessages...)
 
 	s.transcript = newTranscript
 
-	// When transcript is compressed, we need to rewrite the file
-	// Reset savedCount to 0 to force a full rewrite on next save
 	s.savedCount = 0
 
 	// Auto-save session after compression if enabled
@@ -217,7 +206,7 @@ func (s *Session) Transcript() []llm.Message {
 
 // Reset clears the conversation history, keeping the initial seed transcript.
 func (s *Session) Reset() {
-	s.transcript = append([]llm.Message(nil), s.baseTranscript...)
+	s.transcript = []llm.Message(nil)
 }
 
 func sanitizeSessionFilename(filename string) (string, error) {
@@ -365,8 +354,6 @@ func (s *Session) Load(filename string) error {
 	// This preserves Reset/WithTranscript semantics and keeps compression
 	// from removing the loaded seed messages.
 	s.transcript = messages
-	// Make baseTranscript a copy of the loaded messages to serve as the reset base.
-	s.baseTranscript = append([]llm.Message(nil), messages...)
 	// Mark all loaded messages as already saved
 	s.savedCount = len(messages)
 
