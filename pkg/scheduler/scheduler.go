@@ -97,7 +97,8 @@ func (s *Scheduler) LoadFromFile() error {
 }
 
 // parseCrontabLine splits a crontab line into schedule and message.
-// It expects a 6-field cron expression (with seconds) followed by the message.
+// It expects at least 7 space-separated fields: a 6-field cron expression
+// (with seconds) followed by one or more words forming the message.
 // Returns ("", "", false) if the line does not have enough fields.
 func parseCrontabLine(line string) (schedule, message string, ok bool) {
 	fields := strings.Fields(line)
