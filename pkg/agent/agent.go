@@ -277,11 +277,11 @@ func (a *Agent) buildFeedbackPrompt(calls []toolCall, results []toolResult, hasE
 
 	for i, result := range results {
 		sb.WriteString(fmt.Sprintf("## %s\n", result.Tool))
-		sb.WriteString(fmt.Sprintf(a.strings.InputLabel, string(calls[i].Input)))
+		sb.WriteString(fmt.Sprintf("### Input: %s\n", string(calls[i].Input)))
 		if result.Error != "" {
-			sb.WriteString(fmt.Sprintf(a.strings.ErrorLabel, result.Error))
+			sb.WriteString(fmt.Sprintf("### Error: %s\n", result.Error))
 		} else {
-			sb.WriteString(fmt.Sprintf(a.strings.OutputLabel, string(result.Output)))
+			sb.WriteString(fmt.Sprintf("### Output: %s\n", string(result.Output)))
 		}
 		sb.WriteString("\n")
 	}

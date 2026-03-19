@@ -8,9 +8,6 @@ type AgentStrings struct {
 	ToolCallInstructions  string
 	MultipleToolCallsHint string
 	PreferSkillsHint      string
-	InputLabel            string
-	ErrorLabel            string
-	OutputLabel           string
 	FinalResponsePrompt   string
 	ReplanPrompt          string
 }
@@ -24,9 +21,6 @@ func EnglishStrings() AgentStrings {
 		ToolCallInstructions:  "To use a tool, respond with: <tool_call>{\"tool\": \"name\", \"input\": {...}}</tool_call>\n",
 		MultipleToolCallsHint: "You can make multiple tool calls in a single response.\n",
 		PreferSkillsHint:      "Prefer using skills for complex, multi-step operations when available.\n\n",
-		InputLabel:            "Input: %s\n",
-		ErrorLabel:            "Error: %s\n",
-		OutputLabel:           "Output: %s\n",
 		FinalResponsePrompt:   "Based on these results, provide a final response to the user.\n",
 		ReplanPrompt:          "\n\nSome tools failed. Please replan or provide an alternative solution. (Attempt %d/%d)",
 	}
@@ -41,9 +35,6 @@ func ChineseStrings() AgentStrings {
 		ToolCallInstructions:  "要使用工具，请回复：<tool_call>{\"tool\": \"name\", \"input\": {...}}</tool_call>\n",
 		MultipleToolCallsHint: "你可以在一次响应中进行多次工具调用。\n",
 		PreferSkillsHint:      "在可用时优先使用技能进行复杂的多步操作。\n\n",
-		InputLabel:            "输入：%s\n",
-		ErrorLabel:            "错误：%s\n",
-		OutputLabel:           "输出：%s\n",
 		FinalResponsePrompt:   "基于这些结果，向用户提供最终响应。\n",
 		ReplanPrompt:          "\n\n一些工具失败了。请重新规划或提供替代方案。（尝试 %d/%d）",
 	}
