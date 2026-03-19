@@ -2,39 +2,27 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/robfig/cron/v3"
 )
 
-// JobType distinguishes heartbeat from cron jobs.
-type JobType string
-
-const (
-	JobTypeHeartbeat JobType = "heartbeat"
-	JobTypeCron      JobType = "cron"
-)
-
-// Job describes a scheduled job visible to callers.
+// Job describes a cron-scheduled job visible to callers.
 type Job struct {
-	ID       string  `json:"id"`
-	Type     JobType `json:"type"`
-	Schedule string  `json:"schedule"`
-	Message  string  `json:"message"`
+	ID       string `json:"id"`
+	Schedule string `json:"schedule"`
+	Message  string `json:"message"`
 }
 
 // Callback is invoked each time a scheduled job fires.
 type Callback func(ctx context.Context, message string)
 
-// Scheduler manages heartbeat and cron jobs.
+// Scheduler manages cron jobs with optional file persistence in crontab format.
 type Scheduler struct {
 	mu       sync.RWMutex
 	jobs     map[string]*managedJob
@@ -48,13 +36,11 @@ type Scheduler struct {
 
 type managedJob struct {
 	Job
-	cancel  context.CancelFunc // for heartbeat goroutines
-	cronID  cron.EntryID       // for cron entries
-	stopped bool
+	cronID cron.EntryID
 }
 
 // New creates a Scheduler that invokes cb whenever a job fires.
-// An optional file path may be provided for persisting jobs to disk.
+// An optional file path may be provided for persisting jobs to disk in crontab format.
 func New(cb Callback, filePath ...string) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := cron.New(cron.WithSeconds())
@@ -72,8 +58,13 @@ func New(cb Callback, filePath ...string) *Scheduler {
 	return s
 }
 
-// LoadFromFile reads persisted jobs and re-activates them.
+// LoadFromFile reads persisted cron jobs from a crontab-format file and re-activates them.
 // It is safe to call even when no file exists (returns nil).
+//
+// File format (one job per line):
+//
+//	# comment
+//	<6-field-cron-schedule> <message>
 func (s *Scheduler) LoadFromFile() error {
 	if s.filePath == "" {
 		return nil
@@ -84,126 +75,64 @@ func (s *Scheduler) LoadFromFile() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to read schedule file: %w", err)
+		return fmt.Errorf("failed to read crontab file: %w", err)
 	}
 
-	var jobs []Job
-	if err := json.Unmarshal(data, &jobs); err != nil {
-		return fmt.Errorf("failed to parse schedule file: %w", err)
-	}
-
-	for _, j := range jobs {
-		switch j.Type {
-		case JobTypeHeartbeat:
-			dur, err := time.ParseDuration(j.Schedule)
-			if err != nil {
-				slog.Warn("Skipping invalid heartbeat schedule", "id", j.ID, "schedule", j.Schedule, "error", err)
-				continue
-			}
-			if _, err := s.AddHeartbeat(dur, j.Message); err != nil {
-				slog.Warn("Failed to restore heartbeat", "id", j.ID, "error", err)
-			}
-		case JobTypeCron:
-			if _, err := s.AddCron(j.Schedule, j.Message); err != nil {
-				slog.Warn("Failed to restore cron job", "id", j.ID, "error", err)
-			}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		schedule, message, ok := parseCrontabLine(line)
+		if !ok {
+			slog.Warn("Skipping invalid crontab line", "line", line)
+			continue
+		}
+		if _, err := s.AddCron(schedule, message); err != nil {
+			slog.Warn("Failed to restore cron job", "schedule", schedule, "message", message, "error", err)
 		}
 	}
-
-	// Update nextID to be at least as large as the highest loaded ID
-	s.mu.RLock()
-	for _, mj := range s.jobs {
-		if n := parseIDNumber(mj.ID); n > 0 {
-			if cur := s.nextID.Load(); n > cur {
-				s.nextID.Store(n)
-			}
-		}
-	}
-	s.mu.RUnlock()
 
 	return nil
 }
 
-// save persists all current jobs to filePath.
+// parseCrontabLine splits a crontab line into schedule and message.
+// It expects a 6-field cron expression (with seconds) followed by the message.
+// Returns ("", "", false) if the line does not have enough fields.
+func parseCrontabLine(line string) (schedule, message string, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 7 {
+		return "", "", false
+	}
+	schedule = strings.Join(fields[:6], " ")
+	message = strings.Join(fields[6:], " ")
+	return schedule, message, true
+}
+
+// save persists all current jobs to filePath in crontab format.
 // Must be called while s.mu is held.
 func (s *Scheduler) save() {
 	if s.filePath == "" {
 		return
 	}
 
-	jobs := make([]Job, 0, len(s.jobs))
+	var sb strings.Builder
+	sb.WriteString("# MachineSpirit crontab\n")
+	sb.WriteString("# Format: <sec> <min> <hour> <dom> <mon> <dow> <message>\n")
+	sb.WriteString("#\n")
 	for _, mj := range s.jobs {
-		jobs = append(jobs, mj.Job)
+		sb.WriteString(mj.Schedule)
+		sb.WriteString(" ")
+		sb.WriteString(mj.Message)
+		sb.WriteString("\n")
 	}
 
-	data, err := json.MarshalIndent(jobs, "", "  ")
-	if err != nil {
-		slog.Warn("Failed to marshal schedule", "error", err)
-		return
-	}
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
-		slog.Warn("Failed to write schedule file", "path", s.filePath, "error", err)
+	if err := os.WriteFile(s.filePath, []byte(sb.String()), 0644); err != nil {
+		slog.Warn("Failed to write crontab file", "path", s.filePath, "error", err)
 	}
 }
 
-// parseIDNumber extracts the trailing number from an ID like "heartbeat-3" or "cron-5".
-func parseIDNumber(id string) int64 {
-	idx := strings.LastIndex(id, "-")
-	if idx < 0 || idx+1 >= len(id) {
-		return 0
-	}
-	n, err := strconv.ParseInt(id[idx+1:], 10, 64)
-	if err != nil {
-		return 0
-	}
-	return n
-}
-
-// AddHeartbeat starts a periodic job that fires every interval.
-func (s *Scheduler) AddHeartbeat(interval time.Duration, message string) (string, error) {
-	if interval <= 0 {
-		return "", fmt.Errorf("interval must be positive")
-	}
-	if message == "" {
-		return "", fmt.Errorf("message is required")
-	}
-
-	id := fmt.Sprintf("heartbeat-%d", s.nextID.Add(1))
-
-	hbCtx, hbCancel := context.WithCancel(s.ctx)
-
-	mj := &managedJob{
-		Job: Job{
-			ID:       id,
-			Type:     JobTypeHeartbeat,
-			Schedule: interval.String(),
-			Message:  message,
-		},
-		cancel: hbCancel,
-	}
-
-	s.mu.Lock()
-	s.jobs[id] = mj
-	s.save()
-	s.mu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-hbCtx.Done():
-				return
-			case <-ticker.C:
-				s.callback(s.ctx, message)
-			}
-		}
-	}()
-
-	return id, nil
-}
-
-// AddCron schedules a job using a cron expression (6-field with seconds, or 5-field standard).
+// AddCron schedules a job using a cron expression (6-field with seconds).
 func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
 	if schedule == "" {
 		return "", fmt.Errorf("schedule is required")
@@ -225,7 +154,6 @@ func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
 	mj := &managedJob{
 		Job: Job{
 			ID:       id,
-			Type:     JobTypeCron,
 			Schedule: schedule,
 			Message:  message,
 		},
@@ -250,13 +178,7 @@ func (s *Scheduler) Remove(id string) error {
 		return fmt.Errorf("job %q not found", id)
 	}
 
-	if mj.Type == JobTypeHeartbeat && mj.cancel != nil {
-		mj.cancel()
-	}
-	if mj.Type == JobTypeCron {
-		s.cron.Remove(mj.cronID)
-	}
-	mj.stopped = true
+	s.cron.Remove(mj.cronID)
 	delete(s.jobs, id)
 	s.save()
 	return nil
@@ -281,10 +203,7 @@ func (s *Scheduler) Stop() {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, mj := range s.jobs {
-		if mj.cancel != nil {
-			mj.cancel()
-		}
+	for id := range s.jobs {
 		delete(s.jobs, id)
 	}
 }

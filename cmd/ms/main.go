@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
@@ -24,13 +25,15 @@ import (
 )
 
 var (
-	Name         string
-	Model        string
-	APIKey       string
-	BaseURL      string
-	WorkspaceDir string
-	Locale       string
-	MaxRetries   int = 30
+	Name              string
+	Model             string
+	APIKey            string
+	BaseURL           string
+	WorkspaceDir      string
+	Locale            string
+	MaxRetries        int = 30
+	HeartbeatInterval string
+	HeartbeatMessage  string
 )
 
 func init() {
@@ -44,6 +47,8 @@ func init() {
 	flag.StringVar(&WorkspaceDir, "workspace", WorkspaceDir, "Path to workspace directory (optional)")
 	flag.StringVar(&Locale, "locale", "", "Language/locale for internationalized prompts ('en' or 'zh')")
 	flag.IntVar(&MaxRetries, "max-retries", MaxRetries, "Maximum number of retries for tool execution")
+	flag.StringVar(&HeartbeatInterval, "heartbeat", "", "Periodic heartbeat interval (e.g. '1m', '30s'). Triggers the main agent periodically.")
+	flag.StringVar(&HeartbeatMessage, "heartbeat-message", "heartbeat: check status and report", "Message sent to the agent on each heartbeat tick")
 	flag.Parse()
 }
 
@@ -111,9 +116,9 @@ func main() {
 	)
 
 	// Create scheduler with file persistence and sub-agent callback.
-	// When a scheduled job fires, a fresh sub-agent (with its own session)
+	// When a cron job fires, a fresh sub-agent (with its own session)
 	// executes the task independently from the main conversation.
-	schedFile := filepath.Join(pm.GetBaseDir(), "SCHEDULE.json")
+	crontabFile := filepath.Join(pm.GetBaseDir(), "CRONTAB")
 	sched := scheduler.New(func(schedCtx context.Context, message string) {
 		// Create a fresh session for the sub-agent so it does not
 		// pollute the main conversation transcript.
@@ -142,12 +147,12 @@ func main() {
 			return
 		}
 		fmt.Printf("\n[scheduled] %s\n", response)
-	}, schedFile)
+	}, crontabFile)
 	defer sched.Stop()
 
-	// Restore persisted jobs from previous runs
+	// Restore persisted cron jobs from previous runs
 	if err := sched.LoadFromFile(); err != nil {
-		slog.Warn("Failed to load persisted schedule", "error", err)
+		slog.Warn("Failed to load persisted crontab", "error", err)
 	}
 
 	toolsList := []agent.Tool{
@@ -155,7 +160,6 @@ func main() {
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 		tools.NewCompressTool(mainSession),
-		tools.NewHeartbeatTool(sched),
 		tools.NewCronTool(sched),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
@@ -170,6 +174,36 @@ func main() {
 	if err != nil {
 		slog.Error("Failed to create agent", "error", err)
 		os.Exit(1)
+	}
+
+	// Heartbeat: periodic trigger for the main agent
+	if HeartbeatInterval != "" {
+		interval, err := time.ParseDuration(HeartbeatInterval)
+		if err != nil {
+			slog.Error("Invalid heartbeat interval", "interval", HeartbeatInterval, "error", err)
+			os.Exit(1)
+		}
+		if interval <= 0 {
+			slog.Error("Heartbeat interval must be positive", "interval", HeartbeatInterval)
+			os.Exit(1)
+		}
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					response, err := ag.Execute(ctx, HeartbeatMessage)
+					if err != nil {
+						slog.Error("Heartbeat execution error", "error", err)
+						continue
+					}
+					fmt.Printf("\n[heartbeat] %s\n", response)
+				}
+			}
+		}()
 	}
 
 	if !isTty() {

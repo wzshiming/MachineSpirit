@@ -2,73 +2,13 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestAddHeartbeat(t *testing.T) {
-	var mu sync.Mutex
-	var messages []string
-
-	sched := New(func(ctx context.Context, msg string) {
-		mu.Lock()
-		defer mu.Unlock()
-		messages = append(messages, msg)
-	})
-	defer sched.Stop()
-
-	id, err := sched.AddHeartbeat(50*time.Millisecond, "heartbeat ping")
-	if err != nil {
-		t.Fatalf("AddHeartbeat failed: %v", err)
-	}
-	if id == "" {
-		t.Fatal("expected non-empty id")
-	}
-
-	// Wait enough for at least 2 ticks
-	time.Sleep(150 * time.Millisecond)
-
-	mu.Lock()
-	count := len(messages)
-	mu.Unlock()
-
-	if count < 2 {
-		t.Errorf("expected at least 2 heartbeat callbacks, got %d", count)
-	}
-
-	// Verify the message content
-	mu.Lock()
-	for _, m := range messages {
-		if m != "heartbeat ping" {
-			t.Errorf("unexpected message: %q", m)
-		}
-	}
-	mu.Unlock()
-}
-
-func TestAddHeartbeatValidation(t *testing.T) {
-	sched := New(func(ctx context.Context, msg string) {})
-	defer sched.Stop()
-
-	_, err := sched.AddHeartbeat(0, "test")
-	if err == nil {
-		t.Error("expected error for zero interval")
-	}
-
-	_, err = sched.AddHeartbeat(-1*time.Second, "test")
-	if err == nil {
-		t.Error("expected error for negative interval")
-	}
-
-	_, err = sched.AddHeartbeat(1*time.Second, "")
-	if err == nil {
-		t.Error("expected error for empty message")
-	}
-}
 
 func TestAddCron(t *testing.T) {
 	var mu sync.Mutex
@@ -124,22 +64,22 @@ func TestAddCronValidation(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	var mu sync.Mutex
-	var count int
+	var messages []string
 
 	sched := New(func(ctx context.Context, msg string) {
 		mu.Lock()
 		defer mu.Unlock()
-		count++
+		messages = append(messages, msg)
 	})
 	defer sched.Stop()
 
-	id, err := sched.AddHeartbeat(50*time.Millisecond, "test")
+	id, err := sched.AddCron("* * * * * *", "tick")
 	if err != nil {
-		t.Fatalf("AddHeartbeat failed: %v", err)
+		t.Fatalf("AddCron failed: %v", err)
 	}
 
-	// Wait for a couple ticks
-	time.Sleep(150 * time.Millisecond)
+	// Wait for at least 1 tick
+	time.Sleep(1500 * time.Millisecond)
 
 	// Remove the job
 	if err := sched.Remove(id); err != nil {
@@ -147,14 +87,14 @@ func TestRemove(t *testing.T) {
 	}
 
 	mu.Lock()
-	countAtRemoval := count
+	countAtRemoval := len(messages)
 	mu.Unlock()
 
 	// Wait more and verify no more ticks
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	mu.Lock()
-	finalCount := count
+	finalCount := len(messages)
 	mu.Unlock()
 
 	if finalCount != countAtRemoval {
@@ -181,29 +121,12 @@ func TestList(t *testing.T) {
 		t.Error("expected empty list initially")
 	}
 
-	_, _ = sched.AddHeartbeat(1*time.Second, "hb")
-	_, _ = sched.AddCron("* * * * * *", "cron")
+	_, _ = sched.AddCron("* * * * * *", "cron1")
+	_, _ = sched.AddCron("0 0 * * * *", "cron2")
 
 	jobs := sched.List()
 	if len(jobs) != 2 {
 		t.Errorf("expected 2 jobs, got %d", len(jobs))
-	}
-
-	hasHeartbeat := false
-	hasCron := false
-	for _, j := range jobs {
-		if j.Type == JobTypeHeartbeat {
-			hasHeartbeat = true
-		}
-		if j.Type == JobTypeCron {
-			hasCron = true
-		}
-	}
-	if !hasHeartbeat {
-		t.Error("expected a heartbeat job in list")
-	}
-	if !hasCron {
-		t.Error("expected a cron job in list")
 	}
 }
 
@@ -217,10 +140,10 @@ func TestStop(t *testing.T) {
 		count++
 	})
 
-	_, _ = sched.AddHeartbeat(50*time.Millisecond, "test")
+	_, _ = sched.AddCron("* * * * * *", "test")
 
 	// Wait for a tick
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	sched.Stop()
 
@@ -229,7 +152,7 @@ func TestStop(t *testing.T) {
 	mu.Unlock()
 
 	// Wait more and verify no more ticks
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	mu.Lock()
 	finalCount := count
@@ -240,40 +163,45 @@ func TestStop(t *testing.T) {
 	}
 }
 
-func TestPersistToFile(t *testing.T) {
+func TestPersistToCrontab(t *testing.T) {
 	dir := t.TempDir()
-	fp := filepath.Join(dir, "SCHEDULE.json")
+	fp := filepath.Join(dir, "CRONTAB")
 
 	sched := New(func(ctx context.Context, msg string) {}, fp)
 	defer sched.Stop()
 
-	_, err := sched.AddHeartbeat(5*time.Second, "hb check")
+	_, err := sched.AddCron("0 0 * * * *", "hourly task")
 	if err != nil {
-		t.Fatalf("AddHeartbeat failed: %v", err)
+		t.Fatalf("AddCron failed: %v", err)
 	}
-	_, err = sched.AddCron("0 0 * * * *", "hourly task")
+	_, err = sched.AddCron("0 0 9 * * *", "daily report")
 	if err != nil {
 		t.Fatalf("AddCron failed: %v", err)
 	}
 
-	// File should exist
+	// File should exist and be readable text
 	data, err := os.ReadFile(fp)
 	if err != nil {
-		t.Fatalf("Failed to read schedule file: %v", err)
+		t.Fatalf("Failed to read crontab file: %v", err)
 	}
 
-	var jobs []Job
-	if err := json.Unmarshal(data, &jobs); err != nil {
-		t.Fatalf("Failed to parse schedule file: %v", err)
+	content := string(data)
+	// Should have comment header
+	if !strings.HasPrefix(content, "#") {
+		t.Error("expected crontab to start with comment")
 	}
-	if len(jobs) != 2 {
-		t.Errorf("expected 2 persisted jobs, got %d", len(jobs))
+	// Should contain both jobs
+	if !strings.Contains(content, "0 0 * * * * hourly task") {
+		t.Error("expected crontab to contain 'hourly task' job")
+	}
+	if !strings.Contains(content, "0 0 9 * * * daily report") {
+		t.Error("expected crontab to contain 'daily report' job")
 	}
 }
 
-func TestLoadFromFile(t *testing.T) {
+func TestLoadFromCrontab(t *testing.T) {
 	dir := t.TempDir()
-	fp := filepath.Join(dir, "SCHEDULE.json")
+	fp := filepath.Join(dir, "CRONTAB")
 
 	var mu sync.Mutex
 	var messages []string
@@ -285,8 +213,8 @@ func TestLoadFromFile(t *testing.T) {
 
 	// Create scheduler and add jobs
 	sched1 := New(cb, fp)
-	_, _ = sched1.AddHeartbeat(50*time.Millisecond, "hb msg")
-	_, _ = sched1.AddCron("0 0 * * * *", "cron msg")
+	_, _ = sched1.AddCron("* * * * * *", "every second")
+	_, _ = sched1.AddCron("0 0 * * * *", "hourly task")
 	sched1.Stop()
 
 	// Create new scheduler and load from file
@@ -302,20 +230,48 @@ func TestLoadFromFile(t *testing.T) {
 		t.Errorf("expected 2 restored jobs, got %d", len(jobs))
 	}
 
-	// Wait for heartbeat to tick
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the every-second job to tick
+	time.Sleep(1500 * time.Millisecond)
 
 	mu.Lock()
 	count := len(messages)
 	mu.Unlock()
 
 	if count < 1 {
-		t.Errorf("expected at least 1 callback from restored heartbeat, got %d", count)
+		t.Errorf("expected at least 1 callback from restored cron, got %d", count)
+	}
+}
+
+func TestLoadFromCrontabWithComments(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "CRONTAB")
+
+	content := `# This is a comment
+# Another comment
+
+* * * * * * check status
+# inline comment
+0 0 9 * * * daily report
+`
+	if err := os.WriteFile(fp, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sched := New(func(ctx context.Context, msg string) {}, fp)
+	defer sched.Stop()
+
+	if err := sched.LoadFromFile(); err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+
+	jobs := sched.List()
+	if len(jobs) != 2 {
+		t.Errorf("expected 2 jobs, got %d", len(jobs))
 	}
 }
 
 func TestLoadFromFileNoFile(t *testing.T) {
-	sched := New(func(ctx context.Context, msg string) {}, "/nonexistent/path.json")
+	sched := New(func(ctx context.Context, msg string) {}, "/nonexistent/path")
 	defer sched.Stop()
 
 	if err := sched.LoadFromFile(); err != nil {
@@ -325,45 +281,58 @@ func TestLoadFromFileNoFile(t *testing.T) {
 
 func TestRemovePersists(t *testing.T) {
 	dir := t.TempDir()
-	fp := filepath.Join(dir, "SCHEDULE.json")
+	fp := filepath.Join(dir, "CRONTAB")
 
 	sched := New(func(ctx context.Context, msg string) {}, fp)
 	defer sched.Stop()
 
-	id, _ := sched.AddHeartbeat(5*time.Second, "test")
+	id, _ := sched.AddCron("0 0 * * * *", "test")
 	_ = sched.Remove(id)
 
 	data, err := os.ReadFile(fp)
 	if err != nil {
-		t.Fatalf("Failed to read schedule file: %v", err)
+		t.Fatalf("Failed to read crontab file: %v", err)
 	}
 
-	var jobs []Job
-	if err := json.Unmarshal(data, &jobs); err != nil {
-		t.Fatalf("Failed to parse schedule file: %v", err)
+	// The file should have no non-comment, non-empty lines
+	lines := strings.Split(string(data), "\n")
+	jobCount := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			jobCount++
+		}
 	}
-	if len(jobs) != 0 {
-		t.Errorf("expected 0 persisted jobs after removal, got %d", len(jobs))
+	if jobCount != 0 {
+		t.Errorf("expected 0 job lines after removal, got %d", jobCount)
 	}
 }
 
-func TestParseIDNumber(t *testing.T) {
+func TestParseCrontabLine(t *testing.T) {
 	tests := []struct {
-		id       string
-		expected int64
+		line     string
+		schedule string
+		message  string
+		ok       bool
 	}{
-		{"heartbeat-1", 1},
-		{"cron-42", 42},
-		{"heartbeat-0", 0},
-		{"invalid", 0},
-		{"", 0},
-		{"no-number-", 0},
+		{"* * * * * * check status", "* * * * * *", "check status", true},
+		{"0 0 9 * * * daily report generation", "0 0 9 * * *", "daily report generation", true},
+		{"0 */5 * * * * run check", "0 */5 * * * *", "run check", true},
+		{"too few fields", "", "", false},
+		{"1 2 3 4 5 6", "", "", false}, // exactly 6 fields, no message
+		{"", "", "", false},
 	}
 
 	for _, tc := range tests {
-		got := parseIDNumber(tc.id)
-		if got != tc.expected {
-			t.Errorf("parseIDNumber(%q) = %d, want %d", tc.id, got, tc.expected)
+		schedule, message, ok := parseCrontabLine(tc.line)
+		if ok != tc.ok {
+			t.Errorf("parseCrontabLine(%q): ok = %v, want %v", tc.line, ok, tc.ok)
+		}
+		if schedule != tc.schedule {
+			t.Errorf("parseCrontabLine(%q): schedule = %q, want %q", tc.line, schedule, tc.schedule)
+		}
+		if message != tc.message {
+			t.Errorf("parseCrontabLine(%q): message = %q, want %q", tc.line, message, tc.message)
 		}
 	}
 }

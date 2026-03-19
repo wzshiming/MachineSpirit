@@ -24,7 +24,7 @@ func (t *CronTool) Name() string {
 
 func (t *CronTool) Description() string {
 	return `Manage cron-scheduled tasks. Actions: ` +
-		`{"action": "add", "schedule": "0 */5 * * * *", "message": "run status check"} - Add a cron job (6-field with seconds, or 5-field standard). ` +
+		`{"action": "add", "schedule": "0 */5 * * * *", "message": "run status check"} - Add a cron job (6-field with seconds). ` +
 		`{"action": "remove", "id": "cron-1"} - Remove a cron job by ID. ` +
 		`{"action": "list"} - List all active cron jobs.`
 }
@@ -78,19 +78,21 @@ func (t *CronTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 
 	case "list":
 		jobs := t.scheduler.List()
-		cronJobs := make([]scheduler.Job, 0)
-		for _, j := range jobs {
-			if j.Type == scheduler.JobTypeCron {
-				cronJobs = append(cronJobs, j)
-			}
-		}
 		return marshalResult(map[string]any{
 			"status": "success",
-			"jobs":   cronJobs,
-			"count":  len(cronJobs),
+			"jobs":   jobs,
+			"count":  len(jobs),
 		})
 
 	default:
 		return nil, fmt.Errorf("unknown action %q, expected add, remove, or list", params.Action)
 	}
+}
+
+func marshalResult(v any) (json.RawMessage, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+	return json.RawMessage(data), nil
 }
