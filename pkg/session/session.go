@@ -228,6 +228,13 @@ func (s *Session) Save(filename string) error {
 		return fmt.Errorf("failed to create session directory: %w", err)
 	}
 
+	// Sanitize filename to prevent directory traversal; only allow base names.
+	cleanName := filepath.Base(filename)
+	if cleanName != filename || cleanName == "" || cleanName == "." {
+		return fmt.Errorf("invalid session filename: %q", filename)
+	}
+	filename = cleanName
+
 	// Ensure filename has .ndjson extension
 	if !strings.HasSuffix(filename, ".ndjson") {
 		filename = filename + ".ndjson"
@@ -313,10 +320,12 @@ func (s *Session) Load(filename string) error {
 	}
 
 	// Restore the session state
-	// We don't distinguish between base and regular transcript anymore
-	// All messages are loaded as transcript
+	// Treat all loaded messages as the current transcript and as the new base.
+	// This preserves Reset/WithTranscript semantics and keeps compression
+	// from removing the loaded seed messages.
 	s.transcript = messages
-	s.baseTranscript = nil
+	// Make baseTranscript a copy of the loaded messages to serve as the reset base.
+	s.baseTranscript = append([]llm.Message(nil), messages...)
 	// Mark all loaded messages as already saved
 	s.savedCount = len(messages)
 

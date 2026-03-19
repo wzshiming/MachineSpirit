@@ -225,7 +225,7 @@ func TestSessionLoadNonexistentFile(t *testing.T) {
 	}
 }
 
-func TestSessionSaveAddsJsonExtension(t *testing.T) {
+func TestSessionSaveAddsNDJSONExtension(t *testing.T) {
 	tmpDir := t.TempDir()
 	pm, err := persistence.NewPersistenceManager(tmpDir)
 	if err != nil {

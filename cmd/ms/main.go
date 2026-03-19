@@ -111,8 +111,13 @@ func main() {
 
 	// Attempt to load the previous session if it exists
 	if err := session.Load("current"); err != nil {
-		// If the session doesn't exist or can't be loaded, that's fine - start fresh
-		slog.Debug("No previous session loaded or failed to load", "error", err)
+		if os.IsNotExist(err) {
+			// No previous session file found; start with a fresh session
+			slog.Debug("No previous session found, starting a new one", "error", err)
+		} else {
+			// Session file exists but failed to load; warn the user and start fresh
+			slog.Warn("Failed to load previous session; starting with a new one", "error", err)
+		}
 	} else {
 		slog.Info("Loaded previous session from session/current.ndjson")
 	}
@@ -187,7 +192,11 @@ func main() {
 						slog.Error("Failed to save session", "error", err)
 						fmt.Printf("Error: Failed to save session: %v\n", err)
 					} else {
-						fmt.Printf("Session saved to session/%s.ndjson\n", filename)
+						displayFilename := filename
+						if !strings.HasSuffix(displayFilename, ".ndjson") {
+							displayFilename += ".ndjson"
+						}
+						fmt.Printf("Session saved to session/%s\n", displayFilename)
 					}
 					return
 				} else if strings.HasPrefix(text, "/load") {
@@ -203,7 +212,11 @@ func main() {
 						slog.Error("Failed to load session", "error", err)
 						fmt.Printf("Error: Failed to load session: %v\n", err)
 					} else {
-						fmt.Printf("Session loaded from session/%s.ndjson\n", filename)
+						displayFilename := filename
+						if !strings.HasSuffix(displayFilename, ".ndjson") {
+							displayFilename += ".ndjson"
+						}
+						fmt.Printf("Session loaded from session/%s\n", displayFilename)
 					}
 					return
 				} else if strings.HasPrefix(text, "/skills") {
