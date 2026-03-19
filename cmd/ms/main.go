@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
@@ -17,6 +18,7 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
+	"github.com/wzshiming/MachineSpirit/pkg/scheduler"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 	"golang.org/x/term"
 )
@@ -108,15 +110,37 @@ func main() {
 		session.WithPersistenceManager(pm),
 	)
 
+	// Mutex to synchronize agent access between user input and scheduled tasks
+	var agentMu sync.Mutex
+	var ag *agent.Agent
+
+	// Create scheduler with callback that executes agent tasks
+	sched := scheduler.New(func(schedCtx context.Context, message string) {
+		agentMu.Lock()
+		defer agentMu.Unlock()
+		if ag == nil {
+			return
+		}
+		response, err := ag.Execute(schedCtx, message)
+		if err != nil {
+			slog.Error("Scheduled task error", "error", err)
+			return
+		}
+		fmt.Printf("\n[scheduled] %s\n", response)
+	})
+	defer sched.Stop()
+
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 		tools.NewCompressTool(session),
+		tools.NewHeartbeatTool(sched),
+		tools.NewCronTool(sched),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
-	ag, err := agent.NewAgent(
+	ag, err = agent.NewAgent(
 		session,
 		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
@@ -134,7 +158,9 @@ func main() {
 			slog.Error("Read stdint error", "error", err)
 			os.Exit(1)
 		}
+		agentMu.Lock()
 		response, err := ag.Execute(ctx, string(text))
+		agentMu.Unlock()
 		if err != nil {
 			slog.Error("Agent execution error", "error", err)
 			os.Exit(1)
@@ -189,7 +215,9 @@ func main() {
 				}
 			}
 
+			agentMu.Lock()
 			response, err := ag.Execute(ctx, text)
+			agentMu.Unlock()
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
 				return
