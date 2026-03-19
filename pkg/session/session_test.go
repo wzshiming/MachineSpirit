@@ -319,6 +319,8 @@ func TestAutoSaveWithCompression(t *testing.T) {
 		}
 	}
 
+	originalTranscript := session.Transcript()
+
 	// Compress the transcript
 	err = session.CompressTranscript(ctx, 4, "Summarize the following conversation:")
 	if err != nil {
@@ -349,6 +351,55 @@ func TestAutoSaveWithCompression(t *testing.T) {
 	// Should have base + summary + 4 recent messages = 5 messages
 	if session2.Size() != 5 {
 		t.Fatalf("Expected 5 messages after compression, got %d", session2.Size())
+	}
+
+	// Verify summary is the first message in the current session
+	compressEnd := len(originalTranscript) - 4
+	var sb strings.Builder
+	for _, msg := range originalTranscript[:compressEnd] {
+		sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
+	}
+	expectedSummary := "reply: " + sb.String()
+
+	currentTranscript := session2.Transcript()
+	if currentTranscript[0].Role != llm.RoleAssistant {
+		t.Fatalf("Expected first message role to be assistant, got %s", currentTranscript[0].Role)
+	}
+	if currentTranscript[0].Content != expectedSummary {
+		t.Fatalf("Unexpected summary content.\nExpected: %q\nGot: %q", expectedSummary, currentTranscript[0].Content)
+	}
+
+	// Verify the full history was archived
+	sessionDir := filepath.Join(tmpDir, "session")
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		t.Fatalf("Failed to read session directory: %v", err)
+	}
+
+	var archivedName string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "compress-test-") && strings.HasSuffix(entry.Name(), ".ndjson") {
+			archivedName = entry.Name()
+			break
+		}
+	}
+	if archivedName == "" {
+		t.Fatalf("Expected archived session file compress-test-*.ndjson to exist")
+	}
+
+	archivedSession := NewSession(provider, WithPersistenceManager(pm))
+	if err := archivedSession.Load(strings.TrimSuffix(archivedName, ".ndjson")); err != nil {
+		t.Fatalf("Failed to load archived session: %v", err)
+	}
+
+	archivedTranscript := archivedSession.Transcript()
+	if len(archivedTranscript) != len(originalTranscript) {
+		t.Fatalf("Archived transcript length mismatch: expected %d, got %d", len(originalTranscript), len(archivedTranscript))
+	}
+	for i := range archivedTranscript {
+		if archivedTranscript[i].Role != originalTranscript[i].Role || archivedTranscript[i].Content != originalTranscript[i].Content {
+			t.Fatalf("Archived transcript differs at index %d", i)
+		}
 	}
 }
 
