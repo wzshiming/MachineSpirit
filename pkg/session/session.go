@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,8 +104,7 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 	// Auto-save session if enabled
 	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
 		if err := s.Save(s.autoSaveFile); err != nil {
-			// Log but don't fail on save errors
-			os.Stderr.WriteString(fmt.Sprintf("Warning: Failed to auto-save session: %v\n", err))
+			slog.Error("Failed to auto-save session", "error", err)
 		}
 	}
 
@@ -183,8 +183,7 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	// Auto-save session after compression if enabled
 	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
 		if err := s.Save(s.autoSaveFile); err != nil {
-			// Log but don't fail on save errors
-			os.Stderr.WriteString(fmt.Sprintf("Warning: Failed to auto-save session after compression: %v\n", err))
+			slog.Error("Failed to auto-save session after compression", "error", err)
 		}
 	}
 
