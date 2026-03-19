@@ -33,6 +33,7 @@ func TestCronToolAdd(t *testing.T) {
 	// Add a cron job that fires every second
 	input, _ := json.Marshal(map[string]any{
 		"action":   "add",
+		"name":     "test-cron",
 		"schedule": "* * * * * *",
 		"message":  "cron task",
 	})
@@ -73,6 +74,7 @@ func TestCronToolList(t *testing.T) {
 	// Add a cron job
 	addInput, _ := json.Marshal(map[string]any{
 		"action":   "add",
+		"name":     "hourly-task",
 		"schedule": "0 0 * * * *",
 		"message":  "hourly task",
 	})
@@ -108,6 +110,7 @@ func TestCronToolRemove(t *testing.T) {
 	// Add a cron job
 	addInput, _ := json.Marshal(map[string]any{
 		"action":   "add",
+		"name":     "test-job",
 		"schedule": "0 0 * * * *",
 		"message":  "test",
 	})
@@ -163,10 +166,11 @@ func TestCronToolValidation(t *testing.T) {
 		input map[string]any
 	}{
 		{"missing action", map[string]any{}},
-		{"add without schedule", map[string]any{"action": "add", "message": "test"}},
-		{"add without message", map[string]any{"action": "add", "schedule": "* * * * * *"}},
+		{"add without name", map[string]any{"action": "add", "schedule": "* * * * * *", "message": "test"}},
+		{"add without schedule", map[string]any{"action": "add", "name": "test", "message": "test"}},
+		{"add without message", map[string]any{"action": "add", "name": "test", "schedule": "* * * * * *"}},
 		{"remove without id", map[string]any{"action": "remove"}},
-		{"invalid schedule", map[string]any{"action": "add", "schedule": "invalid", "message": "test"}},
+		{"invalid schedule", map[string]any{"action": "add", "name": "test", "schedule": "invalid", "message": "test"}},
 	}
 
 	for _, tc := range tests {

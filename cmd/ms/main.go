@@ -98,7 +98,7 @@ func main() {
 	}
 
 	// Initialize LLM
-	llm, err := llm.NewLLM(
+	provider, err := llm.NewLLM(
 		llm.WithProvider(Name),
 		llm.WithModel(Model),
 		llm.WithAPIKey(APIKey),
@@ -111,18 +111,19 @@ func main() {
 
 	ctx := context.Background()
 
-	mainSession := session.NewSession(llm,
+	mainSession := session.NewSession(provider,
 		session.WithPersistenceManager(pm),
 	)
 
 	// Create scheduler with file persistence and sub-agent callback.
 	// When a cron job fires, a fresh sub-agent (with its own session)
-	// executes the task independently from the main conversation.
+	// executes the task independently, then feeds results back to the
+	// main session so the main agent knows what happened.
 	crontabFile := filepath.Join(pm.GetBaseDir(), "CRONTAB")
 	sched := scheduler.New(func(schedCtx context.Context, message string) {
 		// Create a fresh session for the sub-agent so it does not
-		// pollute the main conversation transcript.
-		subSession := session.NewSession(llm,
+		// pollute the main conversation transcript during execution.
+		subSession := session.NewSession(provider,
 			session.WithPersistenceManager(pm),
 		)
 		// Sub-agent gets execution tools only (no scheduling tools)
@@ -144,9 +145,26 @@ func main() {
 		response, err := subAgent.Execute(schedCtx, message)
 		if err != nil {
 			slog.Error("Scheduled task error", "error", err)
+			// Feed error back to main session
+			mainSession.AddMessages(llm.Message{
+				Role:    llm.RoleUser,
+				Content: fmt.Sprintf("[scheduled task] %s", message),
+			}, llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: fmt.Sprintf("Error executing scheduled task: %v", err),
+			})
 			return
 		}
 		fmt.Printf("\n[scheduled] %s\n", response)
+		// Feed sub-agent's work back to main session so the main agent
+		// knows what the scheduled task did.
+		mainSession.AddMessages(llm.Message{
+			Role:    llm.RoleUser,
+			Content: fmt.Sprintf("[scheduled task] %s", message),
+		}, llm.Message{
+			Role:    llm.RoleAssistant,
+			Content: response,
+		})
 	}, crontabFile)
 	defer sched.Stop()
 

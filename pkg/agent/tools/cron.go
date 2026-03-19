@@ -24,8 +24,8 @@ func (t *CronTool) Name() string {
 
 func (t *CronTool) Description() string {
 	return `Manage cron-scheduled tasks. Actions: ` +
-		`{"action": "add", "schedule": "0 */5 * * * *", "message": "run status check"} - Add a cron job (6-field with seconds). ` +
-		`{"action": "remove", "id": "cron-1"} - Remove a cron job by ID. ` +
+		`{"action": "add", "name": "status-check", "schedule": "0 */5 * * * *", "message": "run status check"} - Add a cron job (6-field with seconds). ` +
+		`{"action": "remove", "id": "status-check"} - Remove a cron job by ID. ` +
 		`{"action": "list"} - List all active cron jobs.`
 }
 
@@ -36,6 +36,7 @@ func (t *CronTool) Enabled() bool {
 func (t *CronTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
 		Action   string `json:"action"`
+		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
 		Message  string `json:"message"`
 		ID       string `json:"id"`
@@ -47,13 +48,16 @@ func (t *CronTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 
 	switch params.Action {
 	case "add":
+		if params.Name == "" {
+			return nil, fmt.Errorf("name is required for add action")
+		}
 		if params.Schedule == "" {
 			return nil, fmt.Errorf("schedule is required for add action")
 		}
 		if params.Message == "" {
 			return nil, fmt.Errorf("message is required for add action")
 		}
-		id, err := t.scheduler.AddCron(params.Schedule, params.Message)
+		id, err := t.scheduler.AddCron(params.Name, params.Schedule, params.Message)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add cron job: %w", err)
 		}

@@ -173,6 +173,18 @@ func (s *Session) Transcript() []llm.Message {
 	return append([]llm.Message(nil), s.transcript...)
 }
 
+// AddMessages appends messages to the transcript without invoking the LLM.
+// This is useful for feeding information from sub-agents or external sources
+// into the conversation history.
+func (s *Session) AddMessages(messages ...llm.Message) {
+	for _, msg := range messages {
+		if msg.Timestamp.IsZero() {
+			msg.Timestamp = time.Now()
+		}
+		s.transcript = append(s.transcript, msg)
+	}
+}
+
 // Reset clears the conversation history, keeping the initial seed transcript.
 func (s *Session) Reset() {
 	s.transcript = append([]llm.Message(nil), s.baseTranscript...)
