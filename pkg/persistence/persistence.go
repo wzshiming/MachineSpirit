@@ -27,13 +27,7 @@ func NewPersistenceManager(baseDir string) (*PersistenceManager, error) {
 	return &PersistenceManager{
 		baseDir: baseDir,
 		items: []string{
-			i18n.FileBootstrap,
-			i18n.FileSoul,
 			i18n.FileAgents,
-			i18n.FileIdentity,
-			i18n.FileUser,
-			i18n.FileTools,
-			i18n.FileMemory,
 		},
 	}, nil
 }
