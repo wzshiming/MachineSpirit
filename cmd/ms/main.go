@@ -106,7 +106,16 @@ func main() {
 
 	session := session.NewSession(llm,
 		session.WithPersistenceManager(pm),
+		session.WithAutoSave("current"),
 	)
+
+	// Attempt to load the previous session if it exists
+	if err := session.Load("current"); err != nil {
+		// If the session doesn't exist or can't be loaded, that's fine - start fresh
+		slog.Debug("No previous session loaded or failed to load", "error", err)
+	} else {
+		slog.Info("Loaded previous session from session/current.ndjson")
+	}
 
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
@@ -156,6 +165,8 @@ func main() {
 					fmt.Println("Commands:")
 					fmt.Println("  /help     - Show this help message")
 					fmt.Println("  /reset    - Clear the session")
+					fmt.Println("  /save     - Save the current session to a file")
+					fmt.Println("  /load     - Load a session from a file")
 					fmt.Println("  /bye      - Exit the program")
 					fmt.Println("  /skills   - List available skills")
 					fmt.Println("  /tools    - List available tools")
@@ -163,6 +174,37 @@ func main() {
 				} else if strings.HasPrefix(text, "/reset") {
 					session.Reset()
 					fmt.Println("Session cleared.")
+					return
+				} else if strings.HasPrefix(text, "/save") {
+					// Extract filename from command
+					parts := strings.Fields(text)
+					filename := "session"
+					if len(parts) > 1 {
+						filename = parts[1]
+					}
+					err := session.Save(filename)
+					if err != nil {
+						slog.Error("Failed to save session", "error", err)
+						fmt.Printf("Error: Failed to save session: %v\n", err)
+					} else {
+						fmt.Printf("Session saved to session/%s.ndjson\n", filename)
+					}
+					return
+				} else if strings.HasPrefix(text, "/load") {
+					// Extract filename from command
+					parts := strings.Fields(text)
+					if len(parts) < 2 {
+						fmt.Println("Usage: /load <filename>")
+						return
+					}
+					filename := parts[1]
+					err := session.Load(filename)
+					if err != nil {
+						slog.Error("Failed to load session", "error", err)
+						fmt.Printf("Error: Failed to load session: %v\n", err)
+					} else {
+						fmt.Printf("Session loaded from session/%s.ndjson\n", filename)
+					}
 					return
 				} else if strings.HasPrefix(text, "/skills") {
 					fmt.Println("Available Skills:")
@@ -203,6 +245,8 @@ func main() {
 			s := []prompt.Suggest{
 				{Text: "/help", Description: "Show the help message"},
 				{Text: "/reset", Description: "Clear the current session"},
+				{Text: "/save", Description: "Save the current session to a file"},
+				{Text: "/load", Description: "Load a session from a file"},
 				{Text: "/bye", Description: "Exit the program"},
 				{Text: "/skills", Description: "List available skills"},
 				{Text: "/tools", Description: "List available tools"},

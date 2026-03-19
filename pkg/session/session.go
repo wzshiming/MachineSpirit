@@ -2,9 +2,11 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,6 +25,9 @@ type Session struct {
 	transcript     []llm.Message
 	baseTranscript []llm.Message
 	pm             *persistence.PersistenceManager
+	autoSave       bool
+	autoSaveFile   string
+	savedCount     int // Number of messages already persisted to disk
 }
 
 type opt func(*Session)
@@ -39,6 +44,15 @@ func WithTranscript(transcript []llm.Message) opt {
 func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
 	return func(s *Session) {
 		s.pm = pm
+	}
+}
+
+// WithAutoSave enables automatic session persistence after each interaction.
+// The session will be saved to the specified filename in the session directory.
+func WithAutoSave(filename string) opt {
+	return func(s *Session) {
+		s.autoSave = true
+		s.autoSaveFile = filename
 	}
 }
 
@@ -93,6 +107,15 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 	os.Stderr.WriteString("====================\n")
 
 	s.transcript = append(s.transcript, prompt, resp)
+
+	// Auto-save session if enabled
+	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
+		if err := s.Save(s.autoSaveFile); err != nil {
+			// Log but don't fail on save errors
+			os.Stderr.WriteString(fmt.Sprintf("Warning: Failed to auto-save session: %v\n", err))
+		}
+	}
+
 	return resp, nil
 }
 
@@ -160,6 +183,19 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	newTranscript = append(newTranscript, recentMessages...)
 
 	s.transcript = newTranscript
+
+	// When transcript is compressed, we need to rewrite the file
+	// Reset savedCount to 0 to force a full rewrite on next save
+	s.savedCount = 0
+
+	// Auto-save session after compression if enabled
+	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
+		if err := s.Save(s.autoSaveFile); err != nil {
+			// Log but don't fail on save errors
+			os.Stderr.WriteString(fmt.Sprintf("Warning: Failed to auto-save session after compression: %v\n", err))
+		}
+	}
+
 	return nil
 }
 
@@ -176,4 +212,113 @@ func (s *Session) Transcript() []llm.Message {
 // Reset clears the conversation history, keeping the initial seed transcript.
 func (s *Session) Reset() {
 	s.transcript = append([]llm.Message(nil), s.baseTranscript...)
+}
+
+// Save persists the session to a file in the session directory.
+// Only new messages (not yet saved) are appended to the file, making it efficient for auto-save.
+// If savedCount is 0 or invalid, the entire file is rewritten (e.g., after compression).
+func (s *Session) Save(filename string) error {
+	if s.pm == nil {
+		return errors.New("persistence manager not set")
+	}
+
+	// Create session directory if it doesn't exist
+	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return fmt.Errorf("failed to create session directory: %w", err)
+	}
+
+	// Ensure filename has .ndjson extension
+	if !strings.HasSuffix(filename, ".ndjson") {
+		filename = filename + ".ndjson"
+	}
+
+	// Build the full path
+	filePath := filepath.Join(sessionDir, filename)
+
+	// Determine if we need to rewrite or append
+	needsRewrite := s.savedCount == 0 || s.savedCount > len(s.transcript)
+
+	var messagesToSave []llm.Message
+	var openFlags int
+
+	if needsRewrite {
+		// Rewrite entire file
+		messagesToSave = s.transcript
+		openFlags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	} else {
+		// Append only new messages
+		messagesToSave = s.transcript[s.savedCount:]
+		if len(messagesToSave) == 0 {
+			// Nothing new to save
+			return nil
+		}
+		openFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+
+	// Open file
+	file, err := os.OpenFile(filePath, openFlags, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+
+	// Write messages as separate JSON lines
+	for _, msg := range messagesToSave {
+		if err := encoder.Encode(msg); err != nil {
+			return fmt.Errorf("failed to write message: %w", err)
+		}
+	}
+
+	// Update the count of saved messages
+	s.savedCount = len(s.transcript)
+
+	return nil
+}
+
+// Load restores the session from a file in the session directory.
+func (s *Session) Load(filename string) error {
+	if s.pm == nil {
+		return errors.New("persistence manager not set")
+	}
+
+	// Ensure filename has .ndjson extension
+	if !strings.HasSuffix(filename, ".ndjson") {
+		filename = filename + ".ndjson"
+	}
+
+	// Build the full path
+	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
+	filePath := filepath.Join(sessionDir, filename)
+
+	// Open the file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	// Read messages line by line
+	decoder := json.NewDecoder(file)
+	var messages []llm.Message
+
+	for decoder.More() {
+		var msg llm.Message
+		if err := decoder.Decode(&msg); err != nil {
+			return fmt.Errorf("failed to decode message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	// Restore the session state
+	// We don't distinguish between base and regular transcript anymore
+	// All messages are loaded as transcript
+	s.transcript = messages
+	s.baseTranscript = nil
+	// Mark all loaded messages as already saved
+	s.savedCount = len(messages)
+
+	return nil
 }
