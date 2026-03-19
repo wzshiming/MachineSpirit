@@ -113,6 +113,10 @@ func main() {
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 		tools.NewCompressTool(session),
+		tools.NewMoveTool(),
+		tools.NewTrashTool(),
+		tools.NewMkdirTool(),
+		tools.NewListTool(),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 

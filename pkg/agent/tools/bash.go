@@ -22,7 +22,7 @@ func (t *BashTool) Name() string {
 }
 
 func (t *BashTool) Description() string {
-	return `Execute a shell command. {"command": "cd /tmp && ls", "timeoutSecond": 30}`
+	return `Execute a shell command. Use 'timeoutSecond' to prevent hanging commands. Returns stdout, stderr, exit code and status. {"command": "cd /tmp && ls -la", "timeoutSecond": 30}`
 }
 
 func (t *BashTool) Enabled() bool {
