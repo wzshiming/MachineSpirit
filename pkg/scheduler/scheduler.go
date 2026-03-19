@@ -7,16 +7,15 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/robfig/cron/v3"
 )
 
 // Job describes a cron-scheduled job visible to callers.
 type Job struct {
-	ID       string `json:"id"`
-	Schedule string `json:"schedule"`
-	Message  string `json:"message"`
+	Name     string
+	Schedule string
+	Message  string
 }
 
 // Callback is invoked each time a scheduled job fires.
@@ -27,7 +26,6 @@ type Scheduler struct {
 	mu       sync.RWMutex
 	jobs     map[string]*managedJob
 	callback Callback
-	nextID   atomic.Int64
 	ctx      context.Context
 	cancel   context.CancelFunc
 	cron     *cron.Cron
@@ -63,7 +61,7 @@ func New(cb Callback, filePath ...string) *Scheduler {
 //
 // File format (one job per line):
 //
-//	# comment
+//	# @name <job-name>
 //	<6-field-cron-schedule> <message>
 func (s *Scheduler) LoadFromFile() error {
 	if s.filePath == "" {
@@ -78,9 +76,20 @@ func (s *Scheduler) LoadFromFile() error {
 		return fmt.Errorf("failed to read crontab file: %w", err)
 	}
 
+	var pendingName string
+	nameCounter := 0
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" {
+			continue
+		}
+		// Check for @name directive
+		if strings.HasPrefix(line, "# @name ") {
+			pendingName = strings.TrimSpace(strings.TrimPrefix(line, "# @name "))
+			continue
+		}
+		// Skip other comments
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
 		schedule, message, ok := parseCrontabLine(line)
@@ -88,8 +97,15 @@ func (s *Scheduler) LoadFromFile() error {
 			slog.Warn("Skipping invalid crontab line", "line", line)
 			continue
 		}
-		if _, err := s.AddCron(schedule, message); err != nil {
-			slog.Warn("Failed to restore cron job", "schedule", schedule, "message", message, "error", err)
+		// Use pending name or generate one
+		name := pendingName
+		if name == "" {
+			nameCounter++
+			name = fmt.Sprintf("cron-%d", nameCounter)
+		}
+		pendingName = ""
+		if _, err := s.AddCron(name, schedule, message); err != nil {
+			slog.Warn("Failed to restore cron job", "name", name, "schedule", schedule, "message", message, "error", err)
 		}
 	}
 
@@ -122,6 +138,9 @@ func (s *Scheduler) save() {
 	sb.WriteString("# Format: <sec> <min> <hour> <dom> <mon> <dow> <message>\n")
 	sb.WriteString("#\n")
 	for _, mj := range s.jobs {
+		sb.WriteString("# @name ")
+		sb.WriteString(mj.Name)
+		sb.WriteString("\n")
 		sb.WriteString(mj.Schedule)
 		sb.WriteString(" ")
 		sb.WriteString(mj.Message)
@@ -134,7 +153,11 @@ func (s *Scheduler) save() {
 }
 
 // AddCron schedules a job using a cron expression (6-field with seconds).
-func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
+// The name identifies the job and must be unique.
+func (s *Scheduler) AddCron(name, schedule, message string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("name is required")
+	}
 	if schedule == "" {
 		return "", fmt.Errorf("schedule is required")
 	}
@@ -142,7 +165,12 @@ func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
 		return "", fmt.Errorf("message is required")
 	}
 
-	id := fmt.Sprintf("cron-%d", s.nextID.Add(1))
+	s.mu.RLock()
+	if _, exists := s.jobs[name]; exists {
+		s.mu.RUnlock()
+		return "", fmt.Errorf("job %q already exists", name)
+	}
+	s.mu.RUnlock()
 
 	msg := message // capture for closure
 	entryID, err := s.cron.AddFunc(schedule, func() {
@@ -154,7 +182,7 @@ func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
 
 	mj := &managedJob{
 		Job: Job{
-			ID:       id,
+			Name:     name,
 			Schedule: schedule,
 			Message:  message,
 		},
@@ -162,11 +190,11 @@ func (s *Scheduler) AddCron(schedule string, message string) (string, error) {
 	}
 
 	s.mu.Lock()
-	s.jobs[id] = mj
+	s.jobs[name] = mj
 	s.save()
 	s.mu.Unlock()
 
-	return id, nil
+	return name, nil
 }
 
 // Remove cancels and removes a job by ID.
