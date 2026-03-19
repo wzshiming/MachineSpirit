@@ -73,10 +73,6 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 		return llm.Message{}, errors.New("llm provider is required")
 	}
 
-	os.Stderr.WriteString("=== LLM Request ===\n")
-	os.Stderr.WriteString(req.Prompt.Content + "\n")
-	os.Stderr.WriteString("====================\n")
-
 	var history []llm.Message
 	if s.transcript != nil {
 		history = append(history, s.transcript...)
@@ -101,10 +97,6 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 	if err != nil {
 		return llm.Message{}, err
 	}
-
-	os.Stderr.WriteString("=== LLM Response ===\n")
-	os.Stderr.WriteString(resp.Content + "\n")
-	os.Stderr.WriteString("====================\n")
 
 	s.transcript = append(s.transcript, prompt, resp)
 
