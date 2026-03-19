@@ -114,14 +114,8 @@ func (s *Scheduler) LoadFromFile() error {
 	s.mu.RLock()
 	for _, mj := range s.jobs {
 		if n := parseIDNumber(mj.ID); n > 0 {
-			for {
-				cur := s.nextID.Load()
-				if n <= cur {
-					break
-				}
-				if s.nextID.CompareAndSwap(cur, n) {
-					break
-				}
+			if cur := s.nextID.Load(); n > cur {
+				s.nextID.Store(n)
 			}
 		}
 	}
@@ -131,6 +125,7 @@ func (s *Scheduler) LoadFromFile() error {
 }
 
 // save persists all current jobs to filePath.
+// Must be called while s.mu is held.
 func (s *Scheduler) save() {
 	if s.filePath == "" {
 		return
