@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
@@ -106,42 +106,62 @@ func main() {
 
 	ctx := context.Background()
 
-	session := session.NewSession(llm,
+	mainSession := session.NewSession(llm,
 		session.WithPersistenceManager(pm),
 	)
 
-	// Mutex to synchronize agent access between user input and scheduled tasks
-	var agentMu sync.Mutex
-	var ag *agent.Agent
-
-	// Create scheduler with callback that executes agent tasks
+	// Create scheduler with file persistence and sub-agent callback.
+	// When a scheduled job fires, a fresh sub-agent (with its own session)
+	// executes the task independently from the main conversation.
+	schedFile := filepath.Join(pm.GetBaseDir(), "SCHEDULE.json")
 	sched := scheduler.New(func(schedCtx context.Context, message string) {
-		agentMu.Lock()
-		defer agentMu.Unlock()
-		if ag == nil {
+		// Create a fresh session for the sub-agent so it does not
+		// pollute the main conversation transcript.
+		subSession := session.NewSession(llm,
+			session.WithPersistenceManager(pm),
+		)
+		// Sub-agent gets execution tools only (no scheduling tools)
+		subTools := []agent.Tool{
+			tools.NewBashTool(),
+			tools.NewWriteTool(),
+			tools.NewReadTool(),
+		}
+		subAgent, err := agent.NewAgent(
+			subSession,
+			agent.WithPersistenceManager(pm),
+			agent.WithTools(subTools...),
+			agent.WithMaxRetries(MaxRetries),
+		)
+		if err != nil {
+			slog.Error("Failed to create sub-agent for scheduled task", "error", err)
 			return
 		}
-		response, err := ag.Execute(schedCtx, message)
+		response, err := subAgent.Execute(schedCtx, message)
 		if err != nil {
 			slog.Error("Scheduled task error", "error", err)
 			return
 		}
 		fmt.Printf("\n[scheduled] %s\n", response)
-	})
+	}, schedFile)
 	defer sched.Stop()
+
+	// Restore persisted jobs from previous runs
+	if err := sched.LoadFromFile(); err != nil {
+		slog.Warn("Failed to load persisted schedule", "error", err)
+	}
 
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
-		tools.NewCompressTool(session),
+		tools.NewCompressTool(mainSession),
 		tools.NewHeartbeatTool(sched),
 		tools.NewCronTool(sched),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
-	ag, err = agent.NewAgent(
-		session,
+	ag, err := agent.NewAgent(
+		mainSession,
 		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
 		agent.WithSkills(skillsList),
@@ -158,9 +178,7 @@ func main() {
 			slog.Error("Read stdint error", "error", err)
 			os.Exit(1)
 		}
-		agentMu.Lock()
 		response, err := ag.Execute(ctx, string(text))
-		agentMu.Unlock()
 		if err != nil {
 			slog.Error("Agent execution error", "error", err)
 			os.Exit(1)
@@ -187,7 +205,7 @@ func main() {
 					fmt.Println("  /tools    - List available tools")
 					return
 				} else if strings.HasPrefix(text, "/reset") {
-					session.Reset()
+					mainSession.Reset()
 					fmt.Println("Session cleared.")
 					return
 				} else if strings.HasPrefix(text, "/bye") {
@@ -215,9 +233,7 @@ func main() {
 				}
 			}
 
-			agentMu.Lock()
 			response, err := ag.Execute(ctx, text)
-			agentMu.Unlock()
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
 				return

@@ -2,6 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -234,5 +237,133 @@ func TestStop(t *testing.T) {
 
 	if finalCount != countAtStop {
 		t.Errorf("expected no more callbacks after stop, got %d additional", finalCount-countAtStop)
+	}
+}
+
+func TestPersistToFile(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "SCHEDULE.json")
+
+	sched := New(func(ctx context.Context, msg string) {}, fp)
+	defer sched.Stop()
+
+	_, err := sched.AddHeartbeat(5*time.Second, "hb check")
+	if err != nil {
+		t.Fatalf("AddHeartbeat failed: %v", err)
+	}
+	_, err = sched.AddCron("0 0 * * * *", "hourly task")
+	if err != nil {
+		t.Fatalf("AddCron failed: %v", err)
+	}
+
+	// File should exist
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		t.Fatalf("Failed to read schedule file: %v", err)
+	}
+
+	var jobs []Job
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		t.Fatalf("Failed to parse schedule file: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Errorf("expected 2 persisted jobs, got %d", len(jobs))
+	}
+}
+
+func TestLoadFromFile(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "SCHEDULE.json")
+
+	var mu sync.Mutex
+	var messages []string
+	cb := func(ctx context.Context, msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		messages = append(messages, msg)
+	}
+
+	// Create scheduler and add jobs
+	sched1 := New(cb, fp)
+	_, _ = sched1.AddHeartbeat(50*time.Millisecond, "hb msg")
+	_, _ = sched1.AddCron("0 0 * * * *", "cron msg")
+	sched1.Stop()
+
+	// Create new scheduler and load from file
+	sched2 := New(cb, fp)
+	defer sched2.Stop()
+
+	if err := sched2.LoadFromFile(); err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+
+	jobs := sched2.List()
+	if len(jobs) != 2 {
+		t.Errorf("expected 2 restored jobs, got %d", len(jobs))
+	}
+
+	// Wait for heartbeat to tick
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	count := len(messages)
+	mu.Unlock()
+
+	if count < 1 {
+		t.Errorf("expected at least 1 callback from restored heartbeat, got %d", count)
+	}
+}
+
+func TestLoadFromFileNoFile(t *testing.T) {
+	sched := New(func(ctx context.Context, msg string) {}, "/nonexistent/path.json")
+	defer sched.Stop()
+
+	if err := sched.LoadFromFile(); err != nil {
+		t.Errorf("LoadFromFile should return nil for missing file, got: %v", err)
+	}
+}
+
+func TestRemovePersists(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "SCHEDULE.json")
+
+	sched := New(func(ctx context.Context, msg string) {}, fp)
+	defer sched.Stop()
+
+	id, _ := sched.AddHeartbeat(5*time.Second, "test")
+	_ = sched.Remove(id)
+
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		t.Fatalf("Failed to read schedule file: %v", err)
+	}
+
+	var jobs []Job
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		t.Fatalf("Failed to parse schedule file: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Errorf("expected 0 persisted jobs after removal, got %d", len(jobs))
+	}
+}
+
+func TestParseIDNumber(t *testing.T) {
+	tests := []struct {
+		id       string
+		expected int64
+	}{
+		{"heartbeat-1", 1},
+		{"cron-42", 42},
+		{"heartbeat-0", 0},
+		{"invalid", 0},
+		{"", 0},
+		{"no-number-", 0},
+	}
+
+	for _, tc := range tests {
+		got := parseIDNumber(tc.id)
+		if got != tc.expected {
+			t.Errorf("parseIDNumber(%q) = %d, want %d", tc.id, got, tc.expected)
+		}
 	}
 }
