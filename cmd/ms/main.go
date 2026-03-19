@@ -164,9 +164,6 @@ func main() {
 					session.Reset()
 					fmt.Println("Session cleared.")
 					return
-				} else if strings.HasPrefix(text, "/bye") {
-					fmt.Println("Goodbye!")
-					os.Exit(0)
 				} else if strings.HasPrefix(text, "/skills") {
 					fmt.Println("Available Skills:")
 					for _, skill := range skillsList.List() {
@@ -182,6 +179,8 @@ func main() {
 					prompt := pm.BuildSystemPrompt("")
 					fmt.Println("Current System Prompt:")
 					fmt.Println(prompt)
+					return
+				} else if strings.HasPrefix(text, "/bye") {
 					return
 				} else {
 					fmt.Println("Unknown command. Type /help for a list of commands.")
@@ -212,6 +211,10 @@ func main() {
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},
 		prompt.OptionPrefix("> "),
+		prompt.OptionSetExitCheckerOnInput(func(in string, breakline bool) bool {
+			exit := breakline && strings.TrimSpace(in) == "/bye"
+			return exit
+		}),
 	)
 	p.Run()
 }
