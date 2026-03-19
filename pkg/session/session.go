@@ -265,7 +265,7 @@ func (s *Session) archiveSessionFile(filename string) (string, error) {
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(filePath), ".ndjson")
-	archivedName := fmt.Sprintf("%s-%s.ndjson", baseName, time.Now().UTC().Format("20060102-150405"))
+	archivedName := fmt.Sprintf("%s-%s.ndjson", baseName, time.Now().UTC().Format("060102150405"))
 	archivedPath := filepath.Join(filepath.Dir(filePath), archivedName)
 
 	if err := os.Rename(filePath, archivedPath); err != nil {
