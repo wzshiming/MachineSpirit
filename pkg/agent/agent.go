@@ -91,7 +91,7 @@ func (a *Agent) Execute(ctx context.Context, userInput string) (string, error) {
 	// Decision-making: initial LLM call
 	response, err := a.session.Complete(ctx,
 		llm.ChatRequest{
-			SystemPrompt: a.pm.BuildSystemPrompt(""),
+			SystemPrompt: a.buildSystemPrompt(),
 			Prompt: llm.Message{
 				Role:    llm.RoleUser,
 				Content: enhancedPrompt,
@@ -138,7 +138,7 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 	// Get the next response from the LLM
 	nextResponse, err := a.session.Complete(ctx,
 		llm.ChatRequest{
-			SystemPrompt: a.pm.BuildSystemPrompt(""),
+			SystemPrompt: a.buildSystemPrompt(),
 			Prompt: llm.Message{
 				Role:    llm.RoleUser,
 				Content: feedbackPrompt,
@@ -231,11 +231,10 @@ func parseToolCalls(response string) []toolCall {
 	return calls
 }
 
-// buildPrompt constructs the initial prompt with memory and tool information.
-func (a *Agent) buildPrompt(userInput string) string {
+func (a *Agent) buildSystemPrompt() string {
 	var sb strings.Builder
 
-	sb.WriteString(a.strings.IntroPrompt)
+	sb.WriteString(a.pm.BuildSystemPrompt(""))
 
 	// List available skills (higher-level capabilities)
 	if list := a.skills.List(); len(list) != 0 {
@@ -260,7 +259,13 @@ func (a *Agent) buildPrompt(userInput string) string {
 		sb.WriteString(a.strings.PreferSkillsHint)
 	}
 
-	sb.WriteString(a.strings.UserRequestHeader)
+	return sb.String()
+}
+
+// buildPrompt constructs the initial prompt with memory and tool information.
+func (a *Agent) buildPrompt(userInput string) string {
+	var sb strings.Builder
+
 	sb.WriteString(userInput)
 
 	return sb.String()
@@ -270,9 +275,8 @@ func (a *Agent) buildPrompt(userInput string) string {
 func (a *Agent) buildFeedbackPrompt(calls []toolCall, results []toolResult, hasErrors bool) string {
 	var sb strings.Builder
 
-	sb.WriteString(a.strings.ToolExecutionResultsHeader)
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf(a.strings.ToolHeader, result.Tool))
+		sb.WriteString(fmt.Sprintf("## %s\n", result.Tool))
 		sb.WriteString(fmt.Sprintf(a.strings.InputLabel, string(calls[i].Input)))
 		if result.Error != "" {
 			sb.WriteString(fmt.Sprintf(a.strings.ErrorLabel, result.Error))
