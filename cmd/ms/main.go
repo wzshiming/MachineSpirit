@@ -28,7 +28,7 @@ var (
 	BaseURL      string
 	WorkspaceDir string
 	Locale       string
-	MaxRetries   int = 100
+	MaxRetries   int = 30
 )
 
 func init() {
@@ -71,6 +71,11 @@ func main() {
 			}
 			slog.Info("Detected system locale", "language", lang, "mapped_to", detectedLocale)
 		}
+		// Set the detected locale in the persistence manager
+		if err := pm.SetLocale(detectedLocale); err != nil {
+			slog.Error("Failed to set detected locale", "locale", detectedLocale, "error", err)
+			os.Exit(1)
+		}
 	} else {
 		// Explicit locale flag takes precedence
 		if err := pm.SetLocale(Locale); err != nil {
@@ -99,12 +104,15 @@ func main() {
 
 	ctx := context.Background()
 
-	session := session.NewSession(llm)
+	session := session.NewSession(llm,
+		session.WithPersistenceManager(pm),
+	)
 
 	toolsList := []agent.Tool{
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
+		tools.NewCompressTool(session),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 

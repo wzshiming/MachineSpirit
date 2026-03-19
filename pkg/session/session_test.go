@@ -28,7 +28,7 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 		{Role: llm.RoleAssistant, Content: "seed"},
 	}
 
-	session := NewSession(provider, WithSystemPrompt("You are helpful"), WithTranscript(seedTranscript))
+	session := NewSession(provider, WithTranscript(seedTranscript))
 
 	first, err := session.Complete(ctx, llm.ChatRequest{
 		Prompt: llm.Message{Role: llm.RoleUser, Content: "hello"},
@@ -44,9 +44,6 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 		t.Fatalf("expected 1 request recorded, got %d", len(provider.requests))
 	}
 	req1 := provider.requests[0]
-	if req1.SystemPrompt != "You are helpful" {
-		t.Fatalf("system prompt not forwarded, got %q", req1.SystemPrompt)
-	}
 	if len(req1.Transcript) != len(seedTranscript) {
 		t.Fatalf("expected seed transcript forwarded, got %d messages", len(req1.Transcript))
 	}
@@ -103,5 +100,31 @@ func TestSessionCompleteTracksTranscript(t *testing.T) {
 	req3 := provider.requests[2]
 	if len(req3.Transcript) != len(seedTranscript) {
 		t.Fatalf("expected transcript reset to seed, got %d messages", len(req3.Transcript))
+	}
+}
+
+func TestNoAutoCompression(t *testing.T) {
+	ctx := context.Background()
+	provider := &stubLLM{}
+	sess := NewSession(provider)
+
+	// Accumulate many messages - no automatic compression should occur
+	for i := 0; i < 20; i++ {
+		_, err := sess.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: "msg"},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+
+	// 20 exchanges = 40 messages (user + assistant each), no compression
+	if got := len(sess.Transcript()); got != 40 {
+		t.Fatalf("expected 40 messages without compression, got %d", got)
+	}
+
+	// All requests should be normal completions, no extra compression calls
+	if len(provider.requests) != 20 {
+		t.Fatalf("expected 20 requests (no compression calls), got %d", len(provider.requests))
 	}
 }

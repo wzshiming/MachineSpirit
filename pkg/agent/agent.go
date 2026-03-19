@@ -250,6 +250,9 @@ func (a *Agent) buildPrompt(userInput string) string {
 	if len(a.tools) > 0 {
 		sb.WriteString(a.strings.AvailableToolsHeader)
 		for _, tool := range a.tools {
+			if !tool.Enabled() {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
