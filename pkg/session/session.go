@@ -311,12 +311,11 @@ func (s *Session) Load(filename string) error {
 	}
 
 	// Restore the session state
-	// Treat all loaded messages as the current transcript and as the new base.
-	// This preserves Reset/WithTranscript semantics and keeps compression
-	// from removing the loaded seed messages.
+	// Only set the transcript to loaded messages; do NOT overwrite baseTranscript.
+	// baseTranscript should only contain seed messages set by WithTranscript,
+	// so that CompressTranscript can compress old loaded messages instead of
+	// only compressing newly added (latest) messages.
 	s.transcript = messages
-	// Make baseTranscript a copy of the loaded messages to serve as the reset base.
-	s.baseTranscript = append([]llm.Message(nil), messages...)
 	// Mark all loaded messages as already saved
 	s.savedCount = len(messages)
 

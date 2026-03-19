@@ -427,3 +427,73 @@ func TestSessionAppendBehavior(t *testing.T) {
 		t.Fatalf("Expected 4 messages after load, got %d", session2.Size())
 	}
 }
+
+func TestCompressionAfterLoadCompressesOldMessages(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm, err := persistence.NewPersistenceManager(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create persistence manager: %v", err)
+	}
+
+	provider := &stubLLM{}
+	sess := NewSession(provider,
+		WithPersistenceManager(pm),
+		WithAutoSave("load-compress-test"),
+	)
+
+	// Build a session with 10 exchanges (20 messages) and save it
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		_, err = sess.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("old message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+
+	// Load the saved session into a new instance
+	sess2 := NewSession(provider, WithPersistenceManager(pm))
+	err = sess2.Load("load-compress-test")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if sess2.Size() != 20 {
+		t.Fatalf("Expected 20 messages after load, got %d", sess2.Size())
+	}
+
+	// Add 2 new messages (1 exchange) after loading
+	_, err = sess2.Complete(ctx, llm.ChatRequest{
+		Prompt: llm.Message{Role: llm.RoleUser, Content: "new message after load"},
+	})
+	if err != nil {
+		t.Fatalf("Complete after load returned error: %v", err)
+	}
+	if sess2.Size() != 22 {
+		t.Fatalf("Expected 22 messages after new exchange, got %d", sess2.Size())
+	}
+
+	// Compress keeping 4 recent messages
+	// This should compress the OLD loaded messages, not just the latest ones
+	err = sess2.CompressTranscript(ctx, 4, "Summarize the following conversation:")
+	if err != nil {
+		t.Fatalf("CompressTranscript after load returned error: %v", err)
+	}
+
+	// After compression: 1 summary + 4 recent = 5 messages
+	if sess2.Size() != 5 {
+		t.Fatalf("Expected 5 messages after compression, got %d", sess2.Size())
+	}
+
+	// Verify the recent messages are the LATEST ones, not the old ones
+	transcript := sess2.Transcript()
+	// The first message should be the summary
+	if transcript[0].Role != llm.RoleAssistant {
+		t.Fatalf("Expected first message to be summary (assistant role), got %s", transcript[0].Role)
+	}
+	// The last message should be the response to "new message after load"
+	lastMsg := transcript[len(transcript)-1]
+	if lastMsg.Content != "reply: new message after load" {
+		t.Fatalf("Expected last message to be the latest response, got %q", lastMsg.Content)
+	}
+}
