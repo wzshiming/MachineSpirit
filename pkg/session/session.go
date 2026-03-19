@@ -98,10 +98,6 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 
 // CompressTranscript reduces transcript size by summarizing older messages.
 func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, systemPrompt string) error {
-	if s.pm == nil {
-		return fmt.Errorf("persistence manager is required for compression")
-	}
-
 	currentCount := len(s.transcript)
 	if currentCount <= minRecentMessages {
 		return fmt.Errorf("transcript too short to compress (minimum %d messages needed)", minRecentMessages)
