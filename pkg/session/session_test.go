@@ -427,3 +427,98 @@ func TestSessionAppendBehavior(t *testing.T) {
 		t.Fatalf("Expected 4 messages after load, got %d", session2.Size())
 	}
 }
+
+func TestCompressionDoesNotForceResetSavedCount(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm, err := persistence.NewPersistenceManager(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create persistence manager: %v", err)
+	}
+
+	provider := &stubLLM{}
+	session := NewSession(provider,
+		WithPersistenceManager(pm),
+		WithAutoSave("compression-append-test"),
+	)
+
+	ctx := context.Background()
+
+	// Add 10 messages to build up the transcript
+	for i := 0; i < 10; i++ {
+		_, err = session.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+
+	// Get file content before compression
+	sessionFile := filepath.Join(tmpDir, "session", "compression-append-test.ndjson")
+	contentBeforeCompression, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Fatalf("Failed to read session file before compression: %v", err)
+	}
+	linesBeforeCompression := strings.Split(strings.TrimSpace(string(contentBeforeCompression)), "\n")
+
+	// Compress the transcript, keeping 4 recent messages
+	err = session.CompressTranscript(ctx, 4, "Summarize the following conversation:")
+	if err != nil {
+		t.Fatalf("CompressTranscript returned error: %v", err)
+	}
+
+	// After compression, the file should be rewritten (smaller)
+	contentAfterCompression, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Fatalf("Failed to read session file after compression: %v", err)
+	}
+	linesAfterCompression := strings.Split(strings.TrimSpace(string(contentAfterCompression)), "\n")
+
+	// Should have summary + 4 recent messages = 5 messages
+	if len(linesAfterCompression) != 5 {
+		t.Fatalf("Expected 5 lines after compression, got %d", len(linesAfterCompression))
+	}
+
+	if len(linesAfterCompression) >= len(linesBeforeCompression) {
+		t.Fatalf("File should be smaller after compression: before=%d, after=%d",
+			len(linesBeforeCompression), len(linesAfterCompression))
+	}
+
+	// Now add one more message - this should APPEND, not rewrite
+	_, err = session.Complete(ctx, llm.ChatRequest{
+		Prompt: llm.Message{Role: llm.RoleUser, Content: "post-compression message"},
+	})
+	if err != nil {
+		t.Fatalf("Complete after compression returned error: %v", err)
+	}
+
+	// Read the file again
+	contentAfterNewMessage, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Fatalf("Failed to read session file after new message: %v", err)
+	}
+	linesAfterNewMessage := strings.Split(strings.TrimSpace(string(contentAfterNewMessage)), "\n")
+
+	// Should now have 7 lines (5 from compression + 2 new messages)
+	if len(linesAfterNewMessage) != 7 {
+		t.Fatalf("Expected 7 lines after new message, got %d", len(linesAfterNewMessage))
+	}
+
+	// Verify that the first 5 lines are unchanged (append, not rewrite)
+	for i := 0; i < 5; i++ {
+		if linesAfterNewMessage[i] != linesAfterCompression[i] {
+			t.Fatalf("Line %d changed after new message - file was rewritten instead of appended", i)
+		}
+	}
+
+	// Verify we can still load the session correctly
+	session2 := NewSession(provider, WithPersistenceManager(pm))
+	err = session2.Load("compression-append-test")
+	if err != nil {
+		t.Fatalf("Failed to load session after compression and new message: %v", err)
+	}
+
+	if session2.Size() != 7 {
+		t.Fatalf("Expected 7 messages after load, got %d", session2.Size())
+	}
+}

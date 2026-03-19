@@ -176,9 +176,9 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 
 	s.transcript = newTranscript
 
-	// When transcript is compressed, we need to rewrite the file
-	// Reset savedCount to 0 to force a full rewrite on next save
-	s.savedCount = 0
+	// When transcript is compressed, the saved count will be greater than
+	// the new transcript length, so Save() will automatically rewrite the file
+	// No need to explicitly reset savedCount to 0
 
 	// Auto-save session after compression if enabled
 	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
