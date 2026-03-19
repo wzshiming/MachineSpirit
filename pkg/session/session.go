@@ -164,6 +164,17 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		return fmt.Errorf("compression failed: %w", err)
 	}
 
+	shouldArchive := s.autoSave && s.pm != nil && s.autoSaveFile != ""
+	if shouldArchive {
+		// Persist the full history before archiving it
+		if err := s.Save(s.autoSaveFile); err != nil {
+			return fmt.Errorf("failed to save session before compression: %w", err)
+		}
+		if _, err := s.archiveSessionFile(s.autoSaveFile); err != nil {
+			return fmt.Errorf("failed to archive session history: %w", err)
+		}
+	}
+
 	// Rebuild transcript: base + summary + recent
 	newTranscript := make([]llm.Message, 0, baseLen+1+len(recentMessages))
 	newTranscript = append(newTranscript, s.baseTranscript...)
@@ -181,7 +192,11 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	s.savedCount = 0
 
 	// Auto-save session after compression if enabled
-	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
+	if shouldArchive {
+		if err := s.Save(s.autoSaveFile); err != nil {
+			slog.Error("Failed to auto-save session after compression", "error", err)
+		}
+	} else if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
 		if err := s.Save(s.autoSaveFile); err != nil {
 			slog.Error("Failed to auto-save session after compression", "error", err)
 		}
@@ -205,34 +220,69 @@ func (s *Session) Reset() {
 	s.transcript = append([]llm.Message(nil), s.baseTranscript...)
 }
 
+func sanitizeSessionFilename(filename string) (string, error) {
+	cleanName := filepath.Base(filename)
+	if cleanName != filename || cleanName == "" || cleanName == "." {
+		return "", fmt.Errorf("invalid session filename: %q", filename)
+	}
+
+	if !strings.HasSuffix(cleanName, ".ndjson") {
+		cleanName += ".ndjson"
+	}
+
+	return cleanName, nil
+}
+
+func (s *Session) sessionFilePath(filename string) (string, error) {
+	if s.pm == nil {
+		return "", errors.New("persistence manager not set")
+	}
+
+	cleanName, err := sanitizeSessionFilename(filename)
+	if err != nil {
+		return "", err
+	}
+
+	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create session directory: %w", err)
+	}
+
+	return filepath.Join(sessionDir, cleanName), nil
+}
+
+func (s *Session) archiveSessionFile(filename string) (string, error) {
+	filePath, err := s.sessionFilePath(filename)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("session file does not exist: %s", filePath)
+		}
+		return "", fmt.Errorf("failed to stat session file: %w", err)
+	}
+
+	baseName := strings.TrimSuffix(filepath.Base(filePath), ".ndjson")
+	archivedName := fmt.Sprintf("%s-%s.ndjson", baseName, time.Now().UTC().Format("060102150405"))
+	archivedPath := filepath.Join(filepath.Dir(filePath), archivedName)
+
+	if err := os.Rename(filePath, archivedPath); err != nil {
+		return "", fmt.Errorf("failed to archive session file: %w", err)
+	}
+
+	return archivedPath, nil
+}
+
 // Save persists the session to a file in the session directory.
 // Only new messages (not yet saved) are appended to the file, making it efficient for auto-save.
 // If savedCount is 0 or invalid, the entire file is rewritten (e.g., after compression).
 func (s *Session) Save(filename string) error {
-	if s.pm == nil {
-		return errors.New("persistence manager not set")
+	filePath, err := s.sessionFilePath(filename)
+	if err != nil {
+		return err
 	}
-
-	// Create session directory if it doesn't exist
-	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return fmt.Errorf("failed to create session directory: %w", err)
-	}
-
-	// Sanitize filename to prevent directory traversal; only allow base names.
-	cleanName := filepath.Base(filename)
-	if cleanName != filename || cleanName == "" || cleanName == "." {
-		return fmt.Errorf("invalid session filename: %q", filename)
-	}
-	filename = cleanName
-
-	// Ensure filename has .ndjson extension
-	if !strings.HasSuffix(filename, ".ndjson") {
-		filename = filename + ".ndjson"
-	}
-
-	// Build the full path
-	filePath := filepath.Join(sessionDir, filename)
 
 	// Determine if we need to rewrite or append
 	needsRewrite := s.savedCount == 0 || s.savedCount > len(s.transcript)
