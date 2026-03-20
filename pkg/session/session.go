@@ -120,11 +120,14 @@ func (s *Session) Complete(ctx context.Context, req SessionRequest) (llm.Message
 	return resp, nil
 }
 
-// CompressTranscript reduces transcript size by summarizing older messages.
-func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, systemPrompt string) (string, error) {
+// PrepareCompress validates compression parameters and builds the text to
+// summarize from the older messages. It returns the text to feed to the
+// summarization LLM, the validated keepRecent count, and the total message
+// count at the time of preparation.
+func (s *Session) PrepareCompress(keepRecent int) (textToSummarize string, validatedKeep int, originalSize int, err error) {
 	currentCount := len(s.transcript)
 	if currentCount <= minRecentMessages {
-		return "", fmt.Errorf("transcript too short to compress (minimum %d messages needed)", minRecentMessages)
+		return "", 0, 0, fmt.Errorf("transcript too short to compress (minimum %d messages needed)", minRecentMessages)
 	}
 
 	// Determine how many recent messages to keep
@@ -132,43 +135,44 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	if keepRecent > 0 {
 		keep = max(keepRecent, minRecentMessages)
 		if keep >= currentCount {
-			return "", fmt.Errorf("keep_recent (%d) must be less than current transcript size (%d)", keep, currentCount)
+			return "", 0, 0, fmt.Errorf("keep_recent (%d) must be less than current transcript size (%d)", keep, currentCount)
 		}
 	} else {
 		// Default: keep half of current messages, minimum of 2
 		keep = max(currentCount/2, minRecentMessages)
 	}
 
-	compressEnd := len(s.transcript) - keep
-
+	compressEnd := currentCount - keep
 	toCompress := s.transcript[:compressEnd]
-	recentMessages := s.transcript[compressEnd:]
 
 	// Build the conversation text for summarization
 	var sb strings.Builder
 	for _, msg := range toCompress {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
+		runes := []rune(msg.Content)
+		if len(runes) > 1000 {
+			sb.WriteString(fmt.Sprintf("[%s]: %s [truncated, original length %d runes]\n", msg.Role, string(runes[:1000]), len(runes)))
+		} else {
+			sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
+		}
 	}
 
-	prompt := llm.Message{
-		Role:    llm.RoleUser,
-		Content: sb.String(),
+	return sb.String(), keep, currentCount, nil
+}
+
+// ApplyCompression replaces the transcript with a summary message followed by
+// recent messages. originalSize is the transcript size when PrepareCompress was
+// called; any messages added after that point are preserved.
+func (s *Session) ApplyCompression(summary string, keepRecent int, originalSize int) (string, error) {
+	// Validate that the transcript hasn't shrunk unexpectedly
+	if originalSize > len(s.transcript) {
+		return "", fmt.Errorf("transcript has changed since compression started (was %d, now %d)", originalSize, len(s.transcript))
+	}
+	if keepRecent > originalSize {
+		return "", fmt.Errorf("keepRecent (%d) exceeds originalSize (%d)", keepRecent, originalSize)
 	}
 
-	history := s.transcript
-	s.transcript = append(s.transcript, prompt)
-
-	// Ask the LLM to summarize the older messages
-	summaryResp, err := s.llm.Complete(ctx, llm.ChatRequest{
-		SystemPrompt: systemPrompt,
-		Transcript:   history,
-		Prompt:       prompt,
-	})
-	if err != nil {
-		return "", fmt.Errorf("compression failed: %w", err)
-	}
-
-	s.transcript = append(s.transcript, summaryResp)
+	recentFromOriginal := s.transcript[originalSize-keepRecent : originalSize]
+	newMessages := s.transcript[originalSize:]
 
 	// Persist the full history before archiving it
 	if err := s.Save(s.saveFile); err != nil {
@@ -179,13 +183,16 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		return "", fmt.Errorf("failed to archive session history: %w", err)
 	}
 
-	newTranscript := append([]llm.Message{
-		{
-			Role:      llm.RoleAssistant,
-			Content:   summaryResp.Content,
-			Timestamp: time.Now(),
-		},
-	}, recentMessages...)
+	summaryMsg := llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   summary,
+		Timestamp: time.Now(),
+	}
+
+	newTranscript := make([]llm.Message, 0, 1+len(recentFromOriginal)+len(newMessages))
+	newTranscript = append(newTranscript, summaryMsg)
+	newTranscript = append(newTranscript, recentFromOriginal...)
+	newTranscript = append(newTranscript, newMessages...)
 
 	s.transcript = newTranscript
 
@@ -196,6 +203,16 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	}
 
 	return archivePath, nil
+}
+
+// LLM returns the session's LLM provider.
+func (s *Session) LLM() llm.LLM {
+	return s.llm
+}
+
+// BaseDir returns the session's base directory.
+func (s *Session) BaseDir() string {
+	return s.baseDir
 }
 
 // Size returns the number of messages in the current transcript.

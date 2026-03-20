@@ -35,7 +35,7 @@ go.work.sum
 # .vscode/
 
 memory/
-session/
+/session/
 .ms_history
 AGENTS.md
 BOOTSTRAP.md

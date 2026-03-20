@@ -19,14 +19,6 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
-// defaultCompressThreshold is the default number of transcript messages
-// before the agent automatically triggers compression.
-const defaultCompressThreshold = 200
-
-// defaultAutoCompressKeepRecent is the number of recent messages to keep
-// when auto-compression triggers.
-const defaultAutoCompressKeepRecent = 50
-
 // defaultInputQueueSize is the default buffer size for the input queue.
 const defaultInputQueueSize = 64
 
@@ -41,16 +33,15 @@ Write the summary as a brief narrative that can serve as context for continuing 
 
 // Agent orchestrates multi-step reasoning with tool calling and memory.
 type Agent struct {
-	pm                *persistence.PersistenceManager
-	session           *session.Session
-	tools             map[string]Tool
-	skills            *skills.Skills
-	maxRetries        int
-	compressThreshold int
-	strings           AgentStrings
-	mut               sync.Mutex
-	inputQueue        chan llm.Message
-	inputNotify       chan struct{}
+	pm          *persistence.PersistenceManager
+	session     *session.Session
+	tools       map[string]Tool
+	skills      *skills.Skills
+	maxRetries  int
+	strings     AgentStrings
+	mut         sync.Mutex
+	inputQueue  chan llm.Message
+	inputNotify chan struct{}
 }
 
 type opt func(*Agent)
@@ -78,16 +69,6 @@ func WithMaxRetries(max int) opt {
 	}
 }
 
-// WithCompressThreshold sets the transcript message count threshold for
-// automatic compression. When the session transcript exceeds this count,
-// the agent will compress it before the next LLM call.
-// A value of 0 or negative disables auto-compression.
-func WithCompressThreshold(threshold int) opt {
-	return func(a *Agent) {
-		a.compressThreshold = threshold
-	}
-}
-
 // WithPersistenceManager sets the persistence manager for the agent.
 func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
 	return func(a *Agent) {
@@ -102,12 +83,11 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	}
 
 	agent := &Agent{
-		session:           session,
-		tools:             make(map[string]Tool),
-		maxRetries:        3,
-		compressThreshold: defaultCompressThreshold,
-		inputQueue:        make(chan llm.Message, defaultInputQueueSize),
-		inputNotify:       make(chan struct{}, 1),
+		session:     session,
+		tools:       make(map[string]Tool),
+		maxRetries:  3,
+		inputQueue:  make(chan llm.Message, defaultInputQueueSize),
+		inputNotify: make(chan struct{}, 1),
 	}
 
 	for _, o := range opts {
@@ -186,9 +166,6 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 		feedbackPrompt += fmt.Sprintf(a.strings.ReplanPrompt, retryCount+1, a.maxRetries)
 	}
 
-	// Auto-compress if transcript has grown past the threshold
-	a.maybeAutoCompress(ctx)
-
 	// Get the next response from the LLM
 	nextResponse, err := a.session.Complete(ctx,
 		session.SessionRequest{
@@ -205,28 +182,6 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 	}
 
 	return a.processResponse(ctx, output, nextResponse.Content, retryCount+1)
-}
-
-// maybeAutoCompress checks the session transcript size and automatically
-// compresses it if it exceeds the configured threshold. This prevents the
-// context window from growing unbounded during long agent interactions.
-func (a *Agent) maybeAutoCompress(ctx context.Context) {
-	if a.compressThreshold <= 0 {
-		return
-	}
-	if a.session.Size() <= a.compressThreshold {
-		return
-	}
-
-	slog.Info("Auto-compressing transcript",
-		"size", a.session.Size(),
-		"threshold", a.compressThreshold,
-	)
-
-	_, err := a.session.CompressTranscript(ctx, defaultAutoCompressKeepRecent, DefaultCompressSystemPrompt)
-	if err != nil {
-		slog.Warn("Auto-compression failed", "error", err)
-	}
 }
 
 // AddInput enqueues a message into the agent's input queue.
@@ -494,6 +449,7 @@ func (a *Agent) BuildSystemPrompt() string {
 	if len(a.tools) > 0 {
 		sb.WriteString(a.strings.AvailableToolsHeader)
 		hasSubSession := false
+		hasCompress := false
 		for _, tool := range a.tools {
 			if !tool.Enabled() {
 				continue
@@ -503,11 +459,17 @@ func (a *Agent) BuildSystemPrompt() string {
 			if !hasSubSession && tool.Name() == "sub_session" {
 				hasSubSession = true
 			}
+			if !hasCompress && tool.Name() == "compress_transcript" {
+				hasCompress = true
+			}
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
 		sb.WriteString(a.strings.MultipleToolCallsHint)
 		if hasSubSession {
 			sb.WriteString(a.strings.SubSessionHint)
+		}
+		if hasCompress {
+			sb.WriteString(a.strings.CompressHint)
 		}
 		sb.WriteString(a.strings.PreferSkillsHint)
 	}

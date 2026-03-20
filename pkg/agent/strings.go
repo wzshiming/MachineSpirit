@@ -9,6 +9,7 @@ type AgentStrings struct {
 	MultipleToolCallsHint string
 	PreferSkillsHint      string
 	SubSessionHint        string
+	CompressHint          string
 	FinalResponsePrompt   string
 	ReplanPrompt          string
 }
@@ -23,6 +24,7 @@ func EnglishStrings() AgentStrings {
 		MultipleToolCallsHint: "You can make multiple tool calls in a single response.\n",
 		PreferSkillsHint:      "Prefer using skills for complex, multi-step operations when available.\n\n",
 		SubSessionHint:        "Use the sub_session tool to delegate independent sub-tasks that can run in parallel, or for long-running operations that should not block the conversation.\n",
+		CompressHint:          "IMPORTANT: Monitor the transcript size reported by the compress_transcript tool. When the transcript exceeds the threshold, you MUST call compress_transcript to free up context window space. Do not wait for the user to ask.\n",
 		FinalResponsePrompt:   "Based on these results, provide a final response to the user.\n",
 		ReplanPrompt:          "\n\nSome tools failed. Please replan or provide an alternative solution. (Attempt %d/%d)",
 	}
@@ -38,6 +40,7 @@ func ChineseStrings() AgentStrings {
 		MultipleToolCallsHint: "你可以在一次响应中进行多次工具调用。\n",
 		PreferSkillsHint:      "在可用时优先使用技能进行复杂的多步操作。\n\n",
 		SubSessionHint:        "使用 sub_session 工具将独立的子任务委托到后台并行执行，或用于不应阻塞对话的长时间运行操作。\n",
+		CompressHint:          "重要提示：关注 compress_transcript 工具报告的对话记录大小。当对话记录超过阈值时，你必须调用 compress_transcript 来释放上下文窗口空间。不要等用户来提醒。\n",
 		FinalResponsePrompt:   "基于这些结果，向用户提供最终响应。\n",
 		ReplanPrompt:          "\n\n一些工具失败了。请重新规划或提供替代方案。（尝试 %d/%d）",
 	}

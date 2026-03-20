@@ -139,8 +139,10 @@ func main() {
 		return baseTools
 	})
 
+	compressTool := tools.NewCompressTool(session, llm)
+
 	toolsList := append(baseTools,
-		tools.NewCompressTool(session),
+		compressTool,
 		subSession,
 	)
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
