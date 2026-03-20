@@ -28,12 +28,12 @@ type subSessionInfo struct {
 }
 
 // SubSessionTool allows the agent to spawn sub-sessions that run tasks
-// in the background and report results back through the main session's
+// in the background and report results back through the parent agent's
 // input queue.
 type SubSessionTool struct {
 	llmProvider llm.LLM
 	pm          *persistence.PersistenceManager
-	mainSession *session.Session
+	addInput    func(llm.Message)
 	buildTools  func() []agent.Tool
 
 	mu          sync.Mutex
@@ -41,18 +41,20 @@ type SubSessionTool struct {
 }
 
 // NewSubSessionTool creates a new SubSessionTool.
+// addInput is a callback that enqueues a message into the parent agent's
+// input queue.
 // buildTools is a factory function that returns the set of tools available
 // to each sub-session agent (typically a subset of the main agent's tools).
 func NewSubSessionTool(
 	llmProvider llm.LLM,
 	pm *persistence.PersistenceManager,
-	mainSession *session.Session,
+	addInput func(llm.Message),
 	buildTools func() []agent.Tool,
 ) *SubSessionTool {
 	return &SubSessionTool{
 		llmProvider: llmProvider,
 		pm:          pm,
-		mainSession: mainSession,
+		addInput:    addInput,
 		buildTools:  buildTools,
 		subSessions: make(map[string]*subSessionInfo),
 	}
@@ -77,7 +79,7 @@ func (t *SubSessionTool) Parameters() []agent.ToolParameter {
 }
 
 func (t *SubSessionTool) Enabled() bool {
-	return t.llmProvider != nil && t.mainSession != nil
+	return t.llmProvider != nil && t.addInput != nil
 }
 
 func (t *SubSessionTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
@@ -203,7 +205,7 @@ func (t *SubSessionTool) finishSubSession(name, result, errMsg string) {
 		slog.Info("Sub-session completed", "name", name)
 	}
 
-	t.mainSession.AddInput(llm.Message{
+	t.addInput(llm.Message{
 		Role:      llm.RoleUser,
 		Content:   content,
 		Timestamp: time.Now(),

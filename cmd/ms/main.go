@@ -10,13 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/tools"
-	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	llmpkg "github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
@@ -93,11 +94,11 @@ func main() {
 	}
 
 	// Initialize LLM
-	llm, err := llm.NewLLM(
-		llm.WithProvider(Name),
-		llm.WithModel(Model),
-		llm.WithAPIKey(APIKey),
-		llm.WithBaseURL(BaseURL),
+	llm, err := llmpkg.NewLLM(
+		llmpkg.WithProvider(Name),
+		llmpkg.WithModel(Model),
+		llmpkg.WithAPIKey(APIKey),
+		llmpkg.WithBaseURL(BaseURL),
 	)
 	if err != nil {
 		slog.Error("Failed to initialize LLM", "error", err)
@@ -130,7 +131,12 @@ func main() {
 		tools.NewReadTool(),
 	}
 
-	subSession := tools.NewSubSessionTool(llm, pm, session, func() []agent.Tool {
+	var ag *agent.Agent
+	subSession := tools.NewSubSessionTool(llm, pm, func(msg llmpkg.Message) {
+		if ag != nil {
+			ag.AddInput(msg)
+		}
+	}, func() []agent.Tool {
 		return baseTools
 	})
 
@@ -140,7 +146,7 @@ func main() {
 	)
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
-	ag, err := agent.NewAgent(
+	ag, err = agent.NewAgent(
 		session,
 		agent.WithPersistenceManager(pm),
 		agent.WithTools(toolsList...),
@@ -165,7 +171,7 @@ func main() {
 		}
 
 		// Process any pending sub-session results
-		processQueuedInputs(ctx, ag, session)
+		processQueuedInputs(ctx, ag)
 		return
 	}
 
@@ -174,6 +180,20 @@ func main() {
 	if err != nil {
 		slog.Warn("Failed to load input history", "error", err)
 	}
+
+	// mu serialises agent execution between the prompt handler and the
+	// background goroutine that processes sub-session results.
+	var mu sync.Mutex
+
+	// Background goroutine: process sub-session results as they arrive,
+	// without waiting for user input.
+	go func() {
+		for range ag.InputNotify() {
+			mu.Lock()
+			processQueuedInputs(ctx, ag)
+			mu.Unlock()
+		}
+	}()
 
 	p := prompt.New(
 		func(text string) {
@@ -261,14 +281,14 @@ func main() {
 				}
 			}
 
+			mu.Lock()
+			defer mu.Unlock()
 			err := ag.Execute(ctx, text, os.Stdout)
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
-				return
 			}
-
-			// Process any pending sub-session results
-			processQueuedInputs(ctx, ag, session)
+			// Also drain any results that arrived during this Execute call.
+			processQueuedInputs(ctx, ag)
 		},
 		func(in prompt.Document) []prompt.Suggest {
 			if in.Text == "" || !strings.HasPrefix(in.Text, "/") {
@@ -346,15 +366,15 @@ func appendHistory(path, line string) {
 	}
 }
 
-// processQueuedInputs drains all pending messages from the session's input
+// processQueuedInputs drains all pending messages from the agent's input
 // queue (e.g. results from completed sub-sessions) and feeds each one to the
 // agent for processing.  It loops up to maxDrainRounds times to pick up
 // results from sub-sessions that may complete while earlier results are being
 // processed, preventing unbounded recursion.
-func processQueuedInputs(ctx context.Context, ag *agent.Agent, sess *session.Session) {
+func processQueuedInputs(ctx context.Context, ag *agent.Agent) {
 	const maxDrainRounds = 3
 	for round := range maxDrainRounds {
-		msgs := sess.DrainInputs()
+		msgs := ag.DrainInputs()
 		if len(msgs) == 0 {
 			break
 		}
