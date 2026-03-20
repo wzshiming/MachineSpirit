@@ -38,7 +38,7 @@ type Agent struct {
 	tools       map[string]Tool
 	skills      *skills.Skills
 	maxRetries  int
-	strings     AgentStrings
+	strings     agentStrings
 	mut         sync.Mutex
 	inputQueue  chan llm.Message
 	inputNotify chan struct{}
@@ -94,12 +94,7 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 		o(agent)
 	}
 
-	// Initialize localized strings based on persistence manager's locale
-	locale := "en"
-	if agent.pm != nil {
-		locale = agent.pm.GetLocale()
-	}
-	agent.strings = GetStrings(locale)
+	agent.strings = englishStrings()
 
 	return agent, nil
 }
