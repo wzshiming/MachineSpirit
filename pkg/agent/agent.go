@@ -33,15 +33,15 @@ Write the summary as a brief narrative that can serve as context for continuing 
 
 // Agent orchestrates multi-step reasoning with tool calling and memory.
 type Agent struct {
-	pm                *persistence.PersistenceManager
-	session           *session.Session
-	tools             map[string]Tool
-	skills            *skills.Skills
-	maxRetries        int
-	strings           AgentStrings
-	mut               sync.Mutex
-	inputQueue        chan llm.Message
-	inputNotify       chan struct{}
+	pm          *persistence.PersistenceManager
+	session     *session.Session
+	tools       map[string]Tool
+	skills      *skills.Skills
+	maxRetries  int
+	strings     AgentStrings
+	mut         sync.Mutex
+	inputQueue  chan llm.Message
+	inputNotify chan struct{}
 }
 
 type opt func(*Agent)
@@ -83,11 +83,11 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	}
 
 	agent := &Agent{
-		session:           session,
-		tools:             make(map[string]Tool),
-		maxRetries: 3,
-		inputQueue: make(chan llm.Message, defaultInputQueueSize),
-		inputNotify:       make(chan struct{}, 1),
+		session:     session,
+		tools:       make(map[string]Tool),
+		maxRetries:  3,
+		inputQueue:  make(chan llm.Message, defaultInputQueueSize),
+		inputNotify: make(chan struct{}, 1),
 	}
 
 	for _, o := range opts {
