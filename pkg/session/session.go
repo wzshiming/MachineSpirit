@@ -14,6 +14,19 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 )
 
+// SessionRequest captures a normalized chat request for LLM providers.
+type SessionRequest struct {
+	SystemPrompt string
+	Prompt       llm.Message
+}
+
+// Message is an alias for llm.Message to avoid import cycles with the llm package.
+type Message = llm.Message
+
+const RoleUser = llm.RoleUser
+const RoleAssistant = llm.RoleAssistant
+const RoleSystem = llm.RoleSystem
+
 // minRecentMessages is the minimum number of recent messages to keep
 // during compression, ensuring at least one user-assistant exchange
 // remains in full for context continuity.
@@ -73,17 +86,9 @@ func NewSession(l llm.LLM, opts ...opt) *Session {
 }
 
 // Complete sends the prompt through the underlying LLM and records the exchange.
-func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Message, error) {
+func (s *Session) Complete(ctx context.Context, req SessionRequest) (llm.Message, error) {
 	if s.llm == nil {
 		return llm.Message{}, errors.New("llm provider is required")
-	}
-
-	var history []llm.Message
-	if s.transcript != nil {
-		history = append(history, s.transcript...)
-	}
-	if req.Transcript != nil {
-		history = append(history, req.Transcript...)
 	}
 
 	systemPrompt := req.SystemPrompt
@@ -95,6 +100,7 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 		prompt.Timestamp = time.Now()
 	}
 
+	history := s.transcript
 	s.transcript = append(s.transcript, prompt)
 
 	if err := s.Save(s.saveFile); err != nil {
@@ -149,17 +155,25 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
 	}
 
+	prompt := llm.Message{
+		Role:    llm.RoleUser,
+		Content: sb.String(),
+	}
+
+	history := s.transcript
+	s.transcript = append(s.transcript, prompt)
+
 	// Ask the LLM to summarize the older messages
 	summaryResp, err := s.llm.Complete(ctx, llm.ChatRequest{
 		SystemPrompt: systemPrompt,
-		Prompt: llm.Message{
-			Role:    llm.RoleUser,
-			Content: sb.String(),
-		},
+		Transcript:   history,
+		Prompt:       prompt,
 	})
 	if err != nil {
 		return "", fmt.Errorf("compression failed: %w", err)
 	}
+
+	s.transcript = append(s.transcript, summaryResp)
 
 	// Persist the full history before archiving it
 	if err := s.Save(s.saveFile); err != nil {

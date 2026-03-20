@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -41,8 +40,8 @@ func TestCompressToolEnabled(t *testing.T) {
 	ctx := context.Background()
 	// Add enough messages to exceed the compressToolThreshold (10)
 	for i := range 6 {
-		_, err := sess3.Complete(ctx, llm.ChatRequest{
-			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		_, err := sess3.Complete(ctx, session.SessionRequest{
+			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
 		})
 		if err != nil {
 			t.Fatalf("Complete returned error: %v", err)
@@ -67,8 +66,8 @@ func TestCompressToolDefaultParameters(t *testing.T) {
 	ctx := context.Background()
 	// Add enough messages for compression
 	for i := range 10 {
-		_, err := sess.Complete(ctx, llm.ChatRequest{
-			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		_, err := sess.Complete(ctx, session.SessionRequest{
+			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
 		})
 		if err != nil {
 			t.Fatalf("Complete returned error: %v", err)
@@ -114,8 +113,8 @@ func TestCompressToolCustomKeepRecent(t *testing.T) {
 
 	ctx := context.Background()
 	for i := range 10 {
-		_, err := sess.Complete(ctx, llm.ChatRequest{
-			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		_, err := sess.Complete(ctx, session.SessionRequest{
+			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
 		})
 		if err != nil {
 			t.Fatalf("Complete returned error: %v", err)

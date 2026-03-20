@@ -10,7 +10,6 @@ import (
 
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
-	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
@@ -119,10 +118,10 @@ func (a *Agent) Execute(ctx context.Context, userInput string, output io.Writer)
 
 	// Decision-making: initial LLM call
 	response, err := a.session.Complete(ctx,
-		llm.ChatRequest{
+		session.SessionRequest{
 			SystemPrompt: a.buildSystemPrompt(),
-			Prompt: llm.Message{
-				Role:    llm.RoleUser,
+			Prompt: session.Message{
+				Role:    session.RoleUser,
 				Content: enhancedPrompt,
 			},
 		},
@@ -176,10 +175,10 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 
 	// Get the next response from the LLM
 	nextResponse, err := a.session.Complete(ctx,
-		llm.ChatRequest{
+		session.SessionRequest{
 			SystemPrompt: a.buildSystemPrompt(),
-			Prompt: llm.Message{
-				Role:    llm.RoleUser,
+			Prompt: session.Message{
+				Role:    session.RoleUser,
 				Content: feedbackPrompt,
 			},
 		},
