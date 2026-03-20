@@ -303,7 +303,7 @@ func isTty() bool {
 // historyFilePath returns the path to the input history file within the
 // workspace's session directory, creating the directory if necessary.
 func historyFilePath(baseDir string) string {
-	return filepath.Join(baseDir, "session", "history")
+	return filepath.Join(baseDir, ".ms_history")
 }
 
 // loadHistory reads newline-delimited input history from path.
@@ -341,7 +341,9 @@ func appendHistory(path, line string) {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintln(f, line)
+	if _, err := fmt.Fprintln(f, line); err != nil {
+		slog.Warn("Failed to write to history file", "error", err)
+	}
 }
 
 // processQueuedInputs drains all pending messages from the session's input
