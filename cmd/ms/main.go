@@ -156,13 +156,11 @@ func main() {
 			slog.Error("Read stdint error", "error", err)
 			os.Exit(1)
 		}
-		response, err := ag.Execute(ctx, string(text))
+		err = ag.Execute(ctx, string(text), os.Stdout)
 		if err != nil {
 			slog.Error("Agent execution error", "error", err)
 			os.Exit(1)
 		}
-
-		fmt.Println(response)
 
 		// Process any pending sub-session results
 		processQueuedInputs(ctx, ag, session)
@@ -254,13 +252,11 @@ func main() {
 				}
 			}
 
-			response, err := ag.Execute(ctx, text)
+			err := ag.Execute(ctx, text, os.Stdout)
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
 				return
 			}
-
-			fmt.Println(response)
 
 			// Process any pending sub-session results
 			processQueuedInputs(ctx, ag, session)
@@ -309,12 +305,11 @@ func processQueuedInputs(ctx context.Context, ag *agent.Agent, sess *session.Ses
 		_ = round
 		for _, msg := range msgs {
 			fmt.Printf("\n[Queued input]: %s\n", msg.Content)
-			response, err := ag.Execute(ctx, msg.Content)
+			err := ag.Execute(ctx, msg.Content, os.Stdout)
 			if err != nil {
 				slog.Error("Failed to process queued input", "error", err)
 				continue
 			}
-			fmt.Println(response)
 		}
 	}
 }
