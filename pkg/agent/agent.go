@@ -431,7 +431,7 @@ func (a *Agent) BuildSystemPrompt() string {
 	if list := a.skills.List(); len(list) != 0 {
 		sb.WriteString(a.strings.AvailableSkillsHeader)
 		for _, skill := range list {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", skill.Path(), skill.Description()))
+			sb.WriteString(fmt.Sprintf("<skill name=%q>%s</skill>\n", skill.Path(), skill.Description()))
 		}
 		sb.WriteString(a.strings.UseSkillsHint)
 	}
