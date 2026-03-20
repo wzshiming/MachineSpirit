@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -131,16 +132,16 @@ func TestBuildFeedbackPrompt(t *testing.T) {
 		prompt := a.buildFeedbackPrompt(calls, results, false)
 
 		// Check that tool_result tags are used with name attribute
-		if !containsString(prompt, `<tool_result name="bash">`) {
+		if !strings.Contains(prompt, `<tool_result name="bash">`) {
 			t.Error("expected <tool_result name=\"bash\"> tag in prompt")
 		}
-		if !containsString(prompt, `<tool_result name="read">`) {
+		if !strings.Contains(prompt, `<tool_result name="read">`) {
 			t.Error("expected <tool_result name=\"read\"> tag in prompt")
 		}
-		if !containsString(prompt, `</tool_result>`) {
+		if !strings.Contains(prompt, `</tool_result>`) {
 			t.Error("expected </tool_result> closing tag in prompt")
 		}
-		if !containsString(prompt, a.strings.FinalResponsePrompt) {
+		if !strings.Contains(prompt, a.strings.FinalResponsePrompt) {
 			t.Error("expected final response prompt for successful results")
 		}
 	})
@@ -153,27 +154,14 @@ func TestBuildFeedbackPrompt(t *testing.T) {
 
 		prompt := a.buildFeedbackPrompt(calls[:1], results[:1], true)
 
-		if !containsString(prompt, `<tool_result name="bash">`) {
+		if !strings.Contains(prompt, `<tool_result name="bash">`) {
 			t.Error("expected <tool_result name=\"bash\"> tag in error prompt")
 		}
-		if !containsString(prompt, "### Error: command not found") {
+		if !strings.Contains(prompt, "### Error: command not found") {
 			t.Error("expected error message in prompt")
 		}
-		if containsString(prompt, a.strings.FinalResponsePrompt) {
+		if strings.Contains(prompt, a.strings.FinalResponsePrompt) {
 			t.Error("should not include final response prompt when there are errors")
 		}
 	})
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && findString(s, substr)
-}
-
-func findString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
