@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
-	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 )
 
 // minRecentMessages is the minimum number of recent messages to keep
@@ -26,8 +25,8 @@ const defaultInputQueueSize = 64
 // Session tracks conversation state across multiple LLM completions.
 type Session struct {
 	llm        llm.LLM
+	baseDir    string
 	transcript []llm.Message
-	pm         *persistence.PersistenceManager
 	saveFile   string
 	savedCount int // Number of messages already persisted to disk
 	inputQueue chan llm.Message
@@ -42,18 +41,18 @@ func WithTranscript(transcript []llm.Message) opt {
 	}
 }
 
-// WithPersistenceManager sets the persistence manager for the agent.
-func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
-	return func(s *Session) {
-		s.pm = pm
-	}
-}
-
 // WithSave enables automatic session persistence after each interaction.
 // The session will be saved to the specified filename in the session directory.
 func WithSave(filename string) opt {
 	return func(s *Session) {
 		s.saveFile = filename
+	}
+}
+
+// WithBaseDir sets the base directory for session file storage. If not set, the current working directory is used.
+func WithBaseDir(dir string) opt {
+	return func(s *Session) {
+		s.baseDir = dir
 	}
 }
 
@@ -260,16 +259,12 @@ func sanitizeSessionFilename(filename string) (string, error) {
 }
 
 func (s *Session) sessionFilePath(filename string) (string, error) {
-	if s.pm == nil {
-		return "", errors.New("persistence manager not set")
-	}
-
 	cleanName, err := sanitizeSessionFilename(filename)
 	if err != nil {
 		return "", err
 	}
 
-	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
+	sessionDir := filepath.Join(s.baseDir, "session")
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create session directory: %w", err)
 	}
@@ -354,17 +349,13 @@ func (s *Session) Save(filename string) error {
 
 // Load restores the session from a file in the session directory.
 func (s *Session) Load(filename string) error {
-	if s.pm == nil {
-		return errors.New("persistence manager not set")
-	}
-
 	// Ensure filename has .ndjson extension
 	if !strings.HasSuffix(filename, ".ndjson") {
 		filename = filename + ".ndjson"
 	}
 
 	// Build the full path
-	sessionDir := filepath.Join(s.pm.GetBaseDir(), "session")
+	sessionDir := filepath.Join(s.baseDir, "session")
 	filePath := filepath.Join(sessionDir, filename)
 
 	// Open the file

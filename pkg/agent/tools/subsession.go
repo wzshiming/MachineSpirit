@@ -149,7 +149,7 @@ func (t *SubSessionTool) runSubSession(name, task string) {
 	// Create a dedicated session for the sub-agent.
 	saveFile := fmt.Sprintf("sub-%s", name)
 	sess := session.NewSession(t.llmProvider,
-		session.WithPersistenceManager(t.pm),
+		session.WithBaseDir(t.pm.GetBaseDir()),
 		session.WithSave(saveFile),
 	)
 

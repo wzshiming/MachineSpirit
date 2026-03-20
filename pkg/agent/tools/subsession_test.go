@@ -86,7 +86,7 @@ func TestSubSessionToolStartAndList(t *testing.T) {
 
 	provider := &stubLLM{}
 	mainSess := session.NewSession(provider,
-		session.WithPersistenceManager(pm),
+		session.WithBaseDir(tmpDir),
 	)
 
 	tool := NewSubSessionTool(provider, pm, mainSess, func() []agent.Tool {
@@ -168,7 +168,7 @@ func TestSubSessionToolDuplicateName(t *testing.T) {
 	}
 
 	provider := &stubLLM{}
-	mainSess := session.NewSession(provider, session.WithPersistenceManager(pm))
+	mainSess := session.NewSession(provider, session.WithBaseDir(tmpDir))
 
 	// Use a factory that creates a slow sub-session (bash tool with sleep)
 	tool := NewSubSessionTool(provider, pm, mainSess, func() []agent.Tool {

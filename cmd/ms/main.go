@@ -107,7 +107,7 @@ func main() {
 	ctx := context.Background()
 
 	session := session.NewSession(llm,
-		session.WithPersistenceManager(pm),
+		session.WithBaseDir(pm.GetBaseDir()),
 		session.WithSave("current"),
 	)
 

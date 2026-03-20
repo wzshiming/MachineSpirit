@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
-	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -37,12 +36,8 @@ func TestCompressToolEnabled(t *testing.T) {
 
 	// Session with enough messages should be enabled
 	tmpDir := t.TempDir()
-	pm, err := persistence.NewPersistenceManager(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create persistence manager: %v", err)
-	}
 
-	sess3 := session.NewSession(provider, session.WithPersistenceManager(pm), session.WithSave("compress-enabled-test"))
+	sess3 := session.NewSession(provider, session.WithBaseDir(tmpDir), session.WithSave("compress-enabled-test"))
 	ctx := context.Background()
 	// Add enough messages to exceed the compressToolThreshold (10)
 	for i := range 6 {
@@ -62,14 +57,10 @@ func TestCompressToolEnabled(t *testing.T) {
 
 func TestCompressToolDefaultParameters(t *testing.T) {
 	tmpDir := t.TempDir()
-	pm, err := persistence.NewPersistenceManager(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create persistence manager: %v", err)
-	}
 
 	provider := &stubLLM{}
 	sess := session.NewSession(provider,
-		session.WithPersistenceManager(pm),
+		session.WithBaseDir(tmpDir),
 		session.WithSave("compress-defaults"),
 	)
 
@@ -114,14 +105,10 @@ func TestCompressToolDefaultParameters(t *testing.T) {
 
 func TestCompressToolCustomKeepRecent(t *testing.T) {
 	tmpDir := t.TempDir()
-	pm, err := persistence.NewPersistenceManager(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create persistence manager: %v", err)
-	}
 
 	provider := &stubLLM{}
 	sess := session.NewSession(provider,
-		session.WithPersistenceManager(pm),
+		session.WithBaseDir(tmpDir),
 		session.WithSave("compress-custom"),
 	)
 
