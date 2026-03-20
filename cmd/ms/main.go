@@ -139,8 +139,14 @@ func main() {
 		return baseTools
 	})
 
+	compressTool := tools.NewCompressTool(session, llm, func(msg llmpkg.Message) {
+		if ag != nil {
+			ag.AddInput(msg)
+		}
+	})
+
 	toolsList := append(baseTools,
-		tools.NewCompressTool(session),
+		compressTool,
 		subSession,
 	)
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")

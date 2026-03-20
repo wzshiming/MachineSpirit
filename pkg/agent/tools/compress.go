@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -18,14 +21,24 @@ const (
 )
 
 // CompressTool allows the agent to compress the conversation transcript.
+// Compression runs in a background goroutine using a separate sub-session
+// for the LLM summarization call, so the main thread is not blocked.
+// Results are reported back through the addInput callback.
 type CompressTool struct {
-	session *session.Session
+	session     *session.Session
+	llmProvider llm.LLM
+	addInput    func(llm.Message)
 }
 
 // NewCompressTool creates a new Compress tool.
-func NewCompressTool(sess *session.Session) *CompressTool {
+// llmProvider is used to create the sub-session for summarization.
+// addInput is a callback that enqueues a message into the parent agent's
+// input queue when compression completes.
+func NewCompressTool(sess *session.Session, llmProvider llm.LLM, addInput func(llm.Message)) *CompressTool {
 	return &CompressTool{
-		session: sess,
+		session:     sess,
+		llmProvider: llmProvider,
+		addInput:    addInput,
 	}
 }
 
@@ -46,7 +59,7 @@ func (t *CompressTool) Parameters() []agent.ToolParameter {
 }
 
 func (t *CompressTool) Enabled() bool {
-	return t.session != nil && t.session.Size() > compressToolThreshold
+	return t.session != nil && t.llmProvider != nil && t.addInput != nil && t.session.Size() > compressToolThreshold
 }
 
 func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
@@ -71,26 +84,79 @@ func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json
 		params.SystemPrompt = agent.DefaultCompressSystemPrompt
 	}
 
-	beforeCount := t.session.Size()
-
-	// Perform compression with specified keep_recent value
-	archivePath, err := t.session.CompressTranscript(ctx, params.KeepRecent, params.SystemPrompt)
+	// Prepare compression data synchronously (fast, no LLM call).
+	text, keepRecent, originalSize, err := t.session.PrepareCompress(params.KeepRecent)
 	if err != nil {
-		return nil, fmt.Errorf("compression failed: %w", err)
+		return nil, fmt.Errorf("compression preparation failed: %w", err)
 	}
 
-	afterCount := t.session.Size()
+	// Launch the summarization in a background goroutine.
+	go t.runCompression(text, keepRecent, originalSize, params.SystemPrompt)
 
 	result, err := json.Marshal(map[string]any{
-		"status":              "success",
-		"messages_before":     beforeCount,
-		"messages_after":      afterCount,
-		"messages_compressed": beforeCount - afterCount,
-		"archive_path":        archivePath,
+		"status":         "started",
+		"messages_count": originalSize,
+		"message":        "Compression started in a background sub-session. Results will be reported when complete.",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 
 	return json.RawMessage(result), nil
+}
+
+// runCompression performs the summarization in a background goroutine using a
+// dedicated sub-session, then applies the result to the main session and
+// reports back via addInput.
+func (t *CompressTool) runCompression(text string, keepRecent, originalSize int, systemPrompt string) {
+	ctx := context.Background()
+
+	// Create a sub-session for the summarization LLM call.
+	saveFile := fmt.Sprintf("compress-%s.ndjson", time.Now().UTC().Format("060102150405"))
+	subSess := session.NewSession(t.llmProvider,
+		session.WithBaseDir(t.session.BaseDir()),
+		session.WithSave(saveFile),
+	)
+
+	summaryResp, err := subSess.Complete(ctx, session.SessionRequest{
+		SystemPrompt: systemPrompt,
+		Prompt: session.Message{
+			Role:    session.RoleUser,
+			Content: text,
+		},
+	})
+	if err != nil {
+		slog.Warn("Compression sub-session failed", "error", err)
+		t.addInput(llm.Message{
+			Role:      llm.RoleUser,
+			Content:   fmt.Sprintf("[Compression failed]: %v", err),
+			Timestamp: time.Now(),
+		})
+		return
+	}
+
+	// Apply the compression result to the main session.
+	archivePath, err := t.session.ApplyCompression(summaryResp.Content, keepRecent, originalSize)
+	if err != nil {
+		slog.Warn("Failed to apply compression", "error", err)
+		t.addInput(llm.Message{
+			Role:      llm.RoleUser,
+			Content:   fmt.Sprintf("[Compression failed]: %v", err),
+			Timestamp: time.Now(),
+		})
+		return
+	}
+
+	afterCount := t.session.Size()
+	slog.Info("Compression completed",
+		"before", originalSize,
+		"after", afterCount,
+		"archive", archivePath,
+	)
+
+	t.addInput(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   fmt.Sprintf("[Compression completed]: %d messages compressed to %d. Archive: %s", originalSize, afterCount, archivePath),
+		Timestamp: time.Now(),
+	})
 }

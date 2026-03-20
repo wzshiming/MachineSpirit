@@ -208,8 +208,9 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 }
 
 // maybeAutoCompress checks the session transcript size and automatically
-// compresses it if it exceeds the configured threshold. This prevents the
-// context window from growing unbounded during long agent interactions.
+// compresses it if it exceeds the configured threshold. Compression runs in
+// a background goroutine using a dedicated sub-session for the summarization
+// LLM call, so the main thread is not blocked.
 func (a *Agent) maybeAutoCompress(ctx context.Context) {
 	if a.compressThreshold <= 0 {
 		return
@@ -218,15 +219,59 @@ func (a *Agent) maybeAutoCompress(ctx context.Context) {
 		return
 	}
 
-	slog.Info("Auto-compressing transcript",
+	text, keepRecent, originalSize, err := a.session.PrepareCompress(defaultAutoCompressKeepRecent)
+	if err != nil {
+		slog.Warn("Auto-compression preparation failed", "error", err)
+		return
+	}
+
+	slog.Info("Auto-compressing transcript in background",
 		"size", a.session.Size(),
 		"threshold", a.compressThreshold,
 	)
 
-	_, err := a.session.CompressTranscript(ctx, defaultAutoCompressKeepRecent, DefaultCompressSystemPrompt)
+	go a.runAutoCompress(text, keepRecent, originalSize)
+}
+
+// runAutoCompress performs auto-compression in a background goroutine.
+func (a *Agent) runAutoCompress(text string, keepRecent, originalSize int) {
+	ctx := context.Background()
+
+	saveFile := fmt.Sprintf("auto-compress-%s.ndjson", time.Now().UTC().Format("060102150405"))
+	subSess := session.NewSession(a.session.LLM(),
+		session.WithBaseDir(a.session.BaseDir()),
+		session.WithSave(saveFile),
+	)
+
+	summaryResp, err := subSess.Complete(ctx, session.SessionRequest{
+		SystemPrompt: DefaultCompressSystemPrompt,
+		Prompt: session.Message{
+			Role:    session.RoleUser,
+			Content: text,
+		},
+	})
 	if err != nil {
-		slog.Warn("Auto-compression failed", "error", err)
+		slog.Warn("Auto-compression sub-session failed", "error", err)
+		return
 	}
+
+	archivePath, err := a.session.ApplyCompression(summaryResp.Content, keepRecent, originalSize)
+	if err != nil {
+		slog.Warn("Failed to apply auto-compression", "error", err)
+		return
+	}
+
+	slog.Info("Auto-compression completed",
+		"before", originalSize,
+		"after", a.session.Size(),
+		"archive", archivePath,
+	)
+
+	a.AddInput(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   fmt.Sprintf("[Auto-compression completed]: %d messages compressed to %d.", originalSize, a.session.Size()),
+		Timestamp: time.Now(),
+	})
 }
 
 // AddInput enqueues a message into the agent's input queue.

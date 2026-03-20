@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
 func TestCompressToolName(t *testing.T) {
 	provider := &stubLLM{}
 	sess := session.NewSession(provider)
-	tool := NewCompressTool(sess)
+	addInput, _ := collectingAddInput()
+	tool := NewCompressTool(sess, provider, addInput)
 	if tool.Name() != "compress_transcript" {
 		t.Errorf("expected name 'compress_transcript', got %q", tool.Name())
 	}
@@ -20,25 +24,23 @@ func TestCompressToolName(t *testing.T) {
 
 func TestCompressToolEnabled(t *testing.T) {
 	// Nil session should be disabled
-	tool := NewCompressTool(nil)
+	addInput, _ := collectingAddInput()
+	tool := NewCompressTool(nil, nil, nil)
 	if tool.Enabled() {
-		t.Error("expected tool to be disabled with nil session")
+		t.Error("expected tool to be disabled with nil session/llm/addInput")
 	}
 
-	// Empty session should be disabled
+	// Empty session should be disabled (below threshold)
 	provider := &stubLLM{}
-	sess := session.NewSession(provider)
-	tool2 := NewCompressTool(sess)
+	tool2 := NewCompressTool(session.NewSession(provider), provider, addInput)
 	if tool2.Enabled() {
 		t.Error("expected tool to be disabled with empty session")
 	}
 
 	// Session with enough messages should be enabled
 	tmpDir := t.TempDir()
-
 	sess3 := session.NewSession(provider, session.WithBaseDir(tmpDir), session.WithSave("compress-enabled-test"))
 	ctx := context.Background()
-	// Add enough messages to exceed the compressToolThreshold (10)
 	for i := range 6 {
 		_, err := sess3.Complete(ctx, session.SessionRequest{
 			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
@@ -47,68 +49,19 @@ func TestCompressToolEnabled(t *testing.T) {
 			t.Fatalf("Complete returned error: %v", err)
 		}
 	}
-	tool3 := NewCompressTool(sess3)
+	tool3 := NewCompressTool(sess3, provider, addInput)
 	// 6 exchanges = 12 messages, which exceeds threshold of 10
 	if !tool3.Enabled() {
 		t.Errorf("expected tool to be enabled with %d messages, threshold is %d", sess3.Size(), compressToolThreshold)
 	}
 }
 
-func TestCompressToolDefaultParameters(t *testing.T) {
+func TestCompressToolReturnsStarted(t *testing.T) {
 	tmpDir := t.TempDir()
-
 	provider := &stubLLM{}
 	sess := session.NewSession(provider,
 		session.WithBaseDir(tmpDir),
-		session.WithSave("compress-defaults"),
-	)
-
-	ctx := context.Background()
-	// Add enough messages for compression
-	for i := range 10 {
-		_, err := sess.Complete(ctx, session.SessionRequest{
-			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
-		})
-		if err != nil {
-			t.Fatalf("Complete returned error: %v", err)
-		}
-	}
-
-	tool := NewCompressTool(sess)
-	beforeSize := sess.Size()
-
-	// Execute with empty params (all defaults)
-	input, _ := json.Marshal(map[string]any{})
-	result, err := tool.Execute(ctx, input)
-	if err != nil {
-		t.Fatalf("Execute with defaults failed: %v", err)
-	}
-
-	var res map[string]any
-	if err := json.Unmarshal(result, &res); err != nil {
-		t.Fatalf("Failed to unmarshal result: %v", err)
-	}
-
-	if res["status"] != "success" {
-		t.Errorf("expected status 'success', got %v", res["status"])
-	}
-	if int(res["messages_before"].(float64)) != beforeSize {
-		t.Errorf("expected messages_before=%d, got %v", beforeSize, res["messages_before"])
-	}
-	// After compression, should have fewer messages
-	afterSize := int(res["messages_after"].(float64))
-	if afterSize >= beforeSize {
-		t.Errorf("expected fewer messages after compression, got before=%d after=%d", beforeSize, afterSize)
-	}
-}
-
-func TestCompressToolCustomKeepRecent(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	provider := &stubLLM{}
-	sess := session.NewSession(provider,
-		session.WithBaseDir(tmpDir),
-		session.WithSave("compress-custom"),
+		session.WithSave("compress-started-test"),
 	)
 
 	ctx := context.Background()
@@ -121,13 +74,14 @@ func TestCompressToolCustomKeepRecent(t *testing.T) {
 		}
 	}
 
-	tool := NewCompressTool(sess)
+	addInput, _ := collectingAddInput()
+	tool := NewCompressTool(sess, provider, addInput)
 
-	// Execute with custom keep_recent
+	// Execute should return immediately with "started" status
 	input, _ := json.Marshal(map[string]any{"keep_recent": 4})
 	result, err := tool.Execute(ctx, input)
 	if err != nil {
-		t.Fatalf("Execute with custom keep_recent failed: %v", err)
+		t.Fatalf("Execute failed: %v", err)
 	}
 
 	var res map[string]any
@@ -135,14 +89,89 @@ func TestCompressToolCustomKeepRecent(t *testing.T) {
 		t.Fatalf("Failed to unmarshal result: %v", err)
 	}
 
-	// Should have 1 summary + 4 recent = 5 messages
-	if afterSize := int(res["messages_after"].(float64)); afterSize != 5 {
+	if res["status"] != "started" {
+		t.Errorf("expected status 'started', got %v", res["status"])
+	}
+}
+
+func TestCompressToolBackgroundCompletion(t *testing.T) {
+	tmpDir := t.TempDir()
+	provider := &stubLLM{}
+	sess := session.NewSession(provider,
+		session.WithBaseDir(tmpDir),
+		session.WithSave("compress-bg-test"),
+	)
+
+	ctx := context.Background()
+	for i := range 10 {
+		_, err := sess.Complete(ctx, session.SessionRequest{
+			Prompt: session.Message{Role: session.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+
+	beforeSize := sess.Size()
+
+	var mu sync.Mutex
+	var msgs []llm.Message
+	addInput := func(msg llm.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+		msgs = append(msgs, msg)
+	}
+
+	tool := NewCompressTool(sess, provider, addInput)
+
+	input, _ := json.Marshal(map[string]any{"keep_recent": 4})
+	_, err := tool.Execute(ctx, input)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Wait for the background goroutine to complete
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		count := len(msgs)
+		mu.Unlock()
+		if count > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify addInput was called with completion message
+	mu.Lock()
+	defer mu.Unlock()
+	if len(msgs) == 0 {
+		t.Fatal("expected addInput to be called after compression")
+	}
+
+	found := false
+	for _, msg := range msgs {
+		if msg.Role == llm.RoleUser && len(msg.Content) > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a completion message from addInput callback")
+	}
+
+	// Verify the session was actually compressed
+	afterSize := sess.Size()
+	if afterSize >= beforeSize {
+		t.Errorf("expected fewer messages after compression, got before=%d after=%d", beforeSize, afterSize)
+	}
+	// 1 summary + 4 recent = 5
+	if afterSize != 5 {
 		t.Errorf("expected 5 messages after compression with keep_recent=4, got %d", afterSize)
 	}
 }
 
 func TestCompressToolParametersOptional(t *testing.T) {
-	tool := NewCompressTool(nil)
+	tool := NewCompressTool(nil, nil, nil)
 	params := tool.Parameters()
 
 	for _, p := range params {
