@@ -52,7 +52,7 @@ func TestInputNotifyNotBlockedByFullQueue(t *testing.T) {
 
 	// Fill the input queue to capacity.
 	for i := range defaultInputQueueSize {
-		sess.AddInput(llm.Message{Role: llm.RoleUser, Content: string(rune('A' + i%26))})
+		sess.AddInput(llm.Message{Role: llm.RoleUser, Content: string(rune('A' + (i % 26)))})
 	}
 
 	// The next AddInput overflows and is dropped, but must not block.

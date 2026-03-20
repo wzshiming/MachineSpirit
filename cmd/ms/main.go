@@ -182,7 +182,8 @@ func main() {
 	var execMu sync.Mutex
 
 	// Background goroutine: react to sub-session completions even when the
-	// user has not entered new input.
+	// user has not entered new input. This goroutine is intentionally
+	// long-lived and exits when the process terminates.
 	go func() {
 		for range session.InputNotify() {
 			execMu.Lock()
