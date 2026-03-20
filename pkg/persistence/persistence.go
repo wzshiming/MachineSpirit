@@ -72,6 +72,23 @@ func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
 
 	parts = append(parts, fmt.Sprintf("Workspace %s", pm.baseDir))
 
+	// files of baseDir
+	entrys, err := os.ReadDir(pm.baseDir)
+	if err != nil {
+		slog.Warn("Failed to read workspace directory", "dir", pm.baseDir, "error", err)
+	}
+
+	list := make([]string, 0, len(entrys))
+	for _, entry := range entrys {
+		if entry.IsDir() {
+			list = append(list, entry.Name()+"/")
+		} else {
+			list = append(list, entry.Name())
+		}
+	}
+
+	parts = append(parts, "Workspace files:\n"+strings.Join(list, "\n"))
+
 	for _, item := range pm.items {
 
 		path := pm.getFilePath(item)
