@@ -16,9 +16,9 @@ type AgentStrings struct {
 // EnglishStrings returns English language strings
 func EnglishStrings() AgentStrings {
 	return AgentStrings{
-		AvailableSkillsHeader: "## Available Skills (High-level capabilities):\n",
-		UseSkillsHint:         "Use skills for complex, multi-step operations when available.\n\n",
-		AvailableToolsHeader:  "## Available Tools (Low-level operations):\n",
+		AvailableSkillsHeader: "## Available Skills:\n",
+		UseSkillsHint:         "**IMPORTANT**: When you need to use any skill, you MUST first read the corresponding SKILL.md, then follow its instructions exactly. Do not guess or use skills from memory.\n",
+		AvailableToolsHeader:  "## Available Tools:\n",
 		ToolCallInstructions:  "To use a tool, respond with: <tool_call name=\"tool_name\">{\"param1\": \"value1\", \"param2\": \"value2\"}</tool_call>\n",
 		MultipleToolCallsHint: "You can make multiple tool calls in a single response.\n",
 		PreferSkillsHint:      "Prefer using skills for complex, multi-step operations when available.\n\n",
@@ -31,9 +31,9 @@ func EnglishStrings() AgentStrings {
 // ChineseStrings returns Chinese language strings
 func ChineseStrings() AgentStrings {
 	return AgentStrings{
-		AvailableSkillsHeader: "## 可用技能（高级功能）：\n",
-		UseSkillsHint:         "在可用时使用技能进行复杂的多步操作。\n\n",
-		AvailableToolsHeader:  "## 可用工具（底层操作）：\n",
+		AvailableSkillsHeader: "## 可用 Skills:\n",
+		UseSkillsHint:         "**重要**：当你需要使用任何技能时，必须先阅读对应的 SKILL.md 文件，并严格按照其中的说明操作。不要凭记忆猜测或使用技能。\n",
+		AvailableToolsHeader:  "## 可用 Tools:\n",
 		ToolCallInstructions:  "要使用工具，请回复：<tool_call name=\"tool_name\">{\"param1\": \"value1\", \"param2\": \"value2\"}</tool_call>\n",
 		MultipleToolCallsHint: "你可以在一次响应中进行多次工具调用。\n",
 		PreferSkillsHint:      "在可用时优先使用技能进行复杂的多步操作。\n\n",
