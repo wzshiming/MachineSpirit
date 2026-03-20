@@ -8,40 +8,46 @@ import (
 
 func TestParseToolCalls(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected []toolCall
+		name               string
+		input              string
+		expectedCalls      []toolCall
+		expectedNonTool    string
 	}{
 		{
-			name:     "no tool calls",
-			input:    "Just a regular response with no tool calls.",
-			expected: nil,
+			name:            "no tool calls",
+			input:           "Just a regular response with no tool calls.",
+			expectedCalls:   nil,
+			expectedNonTool: "Just a regular response with no tool calls.",
 		},
 		{
 			name:  "single tool call",
 			input: `Some text <tool_call name="bash">{"command": "ls"}</tool_call> more text`,
-			expected: []toolCall{
+			expectedCalls: []toolCall{
 				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
 			},
+			expectedNonTool: "Some text  more text",
 		},
 		{
 			name: "multiple tool calls",
 			input: `<tool_call name="bash">{"command": "ls"}</tool_call>
 <tool_call name="read">{"path": "/tmp/test.txt"}</tool_call>`,
-			expected: []toolCall{
+			expectedCalls: []toolCall{
 				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
 				{Tool: "read", Input: json.RawMessage(`{"path":"/tmp/test.txt"}`)},
 			},
+			expectedNonTool: "",
 		},
 		{
-			name:     "missing name attribute",
-			input:    `<tool_call>{"command": "ls"}</tool_call>`,
-			expected: nil,
+			name:            "missing name attribute",
+			input:           `<tool_call>{"command": "ls"}</tool_call>`,
+			expectedCalls:   nil,
+			expectedNonTool: "",
 		},
 		{
-			name:     "missing closing tag",
-			input:    `<tool_call name="bash">{"command": "ls"}`,
-			expected: nil,
+			name:            "missing closing tag",
+			input:           `<tool_call name="bash">{"command": "ls"}`,
+			expectedCalls:   nil,
+			expectedNonTool: `<tool_call name="bash">{"command": "ls"}`,
 		},
 		{
 			name: "tool_call in code string literal",
@@ -52,43 +58,67 @@ func TestParseToolCalls(t *testing.T) {
 				`\t\t}\n\n` +
 				`\t\tnonToolContent.WriteString(response[:start])\n\n` +
 				`\t\ttagEnd := strings.Index(response[start:], \">")`,
-			expected: nil,
+			expectedCalls:   nil,
+			expectedNonTool: `start := strings.Index(response, "<tool_call\")\n\t\tif start == -1 {\n\t\t\tnonToolContent.WriteString(response)\n\t\t\tbreak\n\t\t}\n\n\t\tnonToolContent.WriteString(response[:start])\n\n\t\ttagEnd := strings.Index(response[start:], \">")`,
 		},
 		{
-			name:     "tool_call followed by non-space non-gt",
-			input:    `<tool_call_extra name="bash">{"command": "ls"}</tool_call_extra>`,
-			expected: nil,
+			name:            "tool_call followed by non-space non-gt",
+			input:           `<tool_call_extra name="bash">{"command": "ls"}</tool_call_extra>`,
+			expectedCalls:   nil,
+			expectedNonTool: `<tool_call_extra name="bash">{"command": "ls"}</tool_call_extra>`,
 		},
 		{
 			name: "valid tool call after false match in code",
 			input: `Here is code: "<tool_call\")` + "\n" +
 				`And here is a real call: <tool_call name="bash">{"command": "ls"}</tool_call>`,
-			expected: []toolCall{
+			expectedCalls: []toolCall{
 				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
 			},
+			expectedNonTool: `Here is code: "<tool_call\")` + "\n" + `And here is a real call:`,
 		},
 		{
 			name:  "whitespace around JSON",
 			input: `<tool_call name="bash">  {"command": "ls"}  </tool_call>`,
-			expected: []toolCall{
+			expectedCalls: []toolCall{
 				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
 			},
+			expectedNonTool: "",
+		},
+		{
+			name:  "non-tool text before and after tool call",
+			input: "I'll help you.\n<tool_call name=\"bash\">{\"command\": \"ls\"}</tool_call>\nLet me know if you need more.",
+			expectedCalls: []toolCall{
+				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
+			},
+			expectedNonTool: "I'll help you.\n\nLet me know if you need more.",
+		},
+		{
+			name:  "text between multiple tool calls",
+			input: "First:\n<tool_call name=\"bash\">{\"command\": \"ls\"}</tool_call>\nThen:\n<tool_call name=\"read\">{\"path\": \"/tmp/a\"}</tool_call>\nDone.",
+			expectedCalls: []toolCall{
+				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
+				{Tool: "read", Input: json.RawMessage(`{"path":"/tmp/a"}`)},
+			},
+			expectedNonTool: "First:\n\nThen:\n\nDone.",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseToolCalls(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Fatalf("expected %d tool calls, got %d", len(tt.expected), len(result))
+			if len(result.ToolCalls) != len(tt.expectedCalls) {
+				t.Fatalf("expected %d tool calls, got %d", len(tt.expectedCalls), len(result.ToolCalls))
 			}
-			for i, call := range result {
-				if call.Tool != tt.expected[i].Tool {
-					t.Errorf("call %d: expected tool %q, got %q", i, tt.expected[i].Tool, call.Tool)
+			for i, call := range result.ToolCalls {
+				if call.Tool != tt.expectedCalls[i].Tool {
+					t.Errorf("call %d: expected tool %q, got %q", i, tt.expectedCalls[i].Tool, call.Tool)
 				}
-				if string(call.Input) != string(tt.expected[i].Input) {
-					t.Errorf("call %d: expected input %s, got %s", i, tt.expected[i].Input, call.Input)
+				if string(call.Input) != string(tt.expectedCalls[i].Input) {
+					t.Errorf("call %d: expected input %s, got %s", i, tt.expectedCalls[i].Input, call.Input)
 				}
+			}
+			if result.NonToolContent != tt.expectedNonTool {
+				t.Errorf("non-tool content: expected %q, got %q", tt.expectedNonTool, result.NonToolContent)
 			}
 		})
 	}

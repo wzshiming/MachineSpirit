@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -165,13 +166,14 @@ func (t *SubSessionTool) runSubSession(name, task string) {
 		return
 	}
 
-	result, err := ag.Execute(ctx, task)
+	var result bytes.Buffer
+	err = ag.Execute(ctx, task, &result)
 	if err != nil {
 		t.finishSubSession(name, "", fmt.Sprintf("sub-session execution failed: %v", err))
 		return
 	}
 
-	t.finishSubSession(name, result, "")
+	t.finishSubSession(name, result.String(), "")
 }
 
 func (t *SubSessionTool) finishSubSession(name, result, errMsg string) {

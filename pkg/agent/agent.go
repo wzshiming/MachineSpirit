@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -83,7 +84,7 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 }
 
 // Execute processes a user request through the agent loop:
-func (a *Agent) Execute(ctx context.Context, userInput string) (string, error) {
+func (a *Agent) Execute(ctx context.Context, userInput string, output io.Writer) error {
 	// Build the enhanced prompt with memory context and tool information
 	enhancedPrompt := a.buildPrompt(userInput)
 
@@ -98,27 +99,34 @@ func (a *Agent) Execute(ctx context.Context, userInput string) (string, error) {
 		},
 	)
 	if err != nil {
-		return "", fmt.Errorf("initial completion failed: %w", err)
+		return fmt.Errorf("initial completion failed: %w", err)
 	}
 
 	// 4. Action & 5. Feedback: Execute tool calls and handle feedback
-	return a.processResponse(ctx, response.Content, 0)
+	return a.processResponse(ctx, output, response.Content, 0)
 }
 
 // processResponse handles tool calling and feedback loops.
-func (a *Agent) processResponse(ctx context.Context, response string, retryCount int) (string, error) {
+func (a *Agent) processResponse(ctx context.Context, output io.Writer, response string, retryCount int) error {
 	// Parse the response for tool calls
-	toolCalls := parseToolCalls(response)
+	parsed := parseToolCalls(response)
+
+	if parsed.NonToolContent != "" {
+		_, err := io.WriteString(output, parsed.NonToolContent+"\n")
+		if err != nil {
+			return fmt.Errorf("failed to write output: %w", err)
+		}
+	}
 
 	// If no tool calls, return the response as final answer
-	if len(toolCalls) == 0 {
-		return response, nil
+	if len(parsed.ToolCalls) == 0 {
+		return nil
 	}
 
 	// Execute all tool calls
-	results := make([]toolResult, 0, len(toolCalls))
+	results := make([]toolResult, 0, len(parsed.ToolCalls))
 	hasErrors := false
-	for _, call := range toolCalls {
+	for _, call := range parsed.ToolCalls {
 		result := a.executeTool(ctx, call)
 		results = append(results, result)
 		if result.Error != "" {
@@ -127,7 +135,7 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 	}
 
 	// Build feedback prompt with tool results
-	feedbackPrompt := a.buildFeedbackPrompt(toolCalls, results, hasErrors)
+	feedbackPrompt := a.buildFeedbackPrompt(parsed.ToolCalls, results, hasErrors)
 
 	// If we have errors and haven't exceeded retry limit, allow replanning
 	if hasErrors && retryCount < a.maxRetries {
@@ -146,11 +154,10 @@ func (a *Agent) processResponse(ctx context.Context, response string, retryCount
 	)
 
 	if err != nil {
-		return "", fmt.Errorf("feedback completion failed: %w", err)
+		return fmt.Errorf("feedback completion failed: %w", err)
 	}
 
-	// Recursive call to handle potential additional tool calls
-	return a.processResponse(ctx, nextResponse.Content, retryCount+1)
+	return a.processResponse(ctx, output, nextResponse.Content, retryCount+1)
 }
 
 // toolCall represents a request to invoke a specific tool.
@@ -190,52 +197,70 @@ func (a *Agent) executeTool(ctx context.Context, call toolCall) toolResult {
 	}
 }
 
-// parseToolCalls extracts tool calls from the LLM response.
+// parsedResponse holds the result of parsing an LLM response for tool calls.
+type parsedResponse struct {
+	NonToolContent string     // Text outside <tool_call>...</tool_call> tags
+	ToolCalls      []toolCall // Extracted tool calls
+}
+
+// parseToolCalls extracts tool calls from the LLM response and collects
+// the surrounding non-tool text so it can be relayed to the user.
 // Expected format: <tool_call name="...">{...}</tool_call>
-func parseToolCalls(response string) []toolCall {
+func parseToolCalls(response string) parsedResponse {
 	var calls []toolCall
+	var nonToolContent strings.Builder
+	remaining := response
 
 	// Simple XML-like tag parsing
 	for {
-		start := strings.Index(response, "<tool_call name=\"")
+		start := strings.Index(remaining, "<tool_call name=\"")
 		if start == -1 {
+			nonToolContent.WriteString(remaining)
 			break
 		}
 
 		// Validate that <tool_call is followed by a space or '>',
 		// not other characters (e.g. when <tool_call appears inside code/strings).
 		nextCharIdx := start + len("<tool_call")
-		if nextCharIdx >= len(response) {
+		if nextCharIdx >= len(remaining) {
+			nonToolContent.WriteString(remaining)
 			break
 		}
-		nextChar := response[nextCharIdx]
+		nextChar := remaining[nextCharIdx]
 		if nextChar != ' ' && nextChar != '>' {
-			response = response[nextCharIdx:]
+			nonToolContent.WriteString(remaining[:nextCharIdx])
+			remaining = remaining[nextCharIdx:]
 			continue
 		}
 
 		// Find end of opening tag
-		tagEnd := strings.Index(response[start:], ">")
+		tagEnd := strings.Index(remaining[start:], ">")
 		if tagEnd == -1 {
+			nonToolContent.WriteString(remaining)
 			break
 		}
 		tagEnd += start
 
 		// Reject tags that span multiple lines (likely false matches from code output).
-		if strings.ContainsAny(response[start:tagEnd], "\n\r") {
-			response = response[start+len("<tool_call"):]
+		if strings.ContainsAny(remaining[start:tagEnd], "\n\r") {
+			nonToolContent.WriteString(remaining[:start+len("<tool_call")])
+			remaining = remaining[start+len("<tool_call"):]
 			continue
 		}
 
 		// Find closing tag
-		end := strings.Index(response[tagEnd:], "</tool_call>")
+		end := strings.Index(remaining[tagEnd:], "</tool_call>")
 		if end == -1 {
+			nonToolContent.WriteString(remaining)
 			break
 		}
 		end += tagEnd
 
-		openTag := response[start : tagEnd+1]
-		callJSON := strings.TrimSpace(response[tagEnd+1 : end])
+		// Collect non-tool text before this tool call
+		nonToolContent.WriteString(remaining[:start])
+
+		openTag := remaining[start : tagEnd+1]
+		callJSON := strings.TrimSpace(remaining[tagEnd+1 : end])
 
 		// Extract tool name from the tag attribute
 		toolName := extractTagAttribute(openTag, "name")
@@ -249,6 +274,7 @@ func parseToolCalls(response string) []toolCall {
 			var input json.RawMessage
 			if err := json.Unmarshal([]byte(callJSON), &input); err == nil {
 				calls = append(calls, toolCall{Tool: toolName, Input: input})
+				nonToolContent.WriteString(fmt.Sprintf("[Tool call: %s, input: %s]\n", toolName, string(input)))
 			} else {
 				slog.Warn("failed to parse tool call JSON", "error", err, "json", callJSON)
 			}
@@ -256,10 +282,13 @@ func parseToolCalls(response string) []toolCall {
 			slog.Warn("tool call missing 'name' attribute", "tag", openTag)
 		}
 
-		response = response[end+len("</tool_call>"):]
+		remaining = remaining[end+len("</tool_call>"):]
 	}
 
-	return calls
+	return parsedResponse{
+		NonToolContent: strings.TrimSpace(nonToolContent.String()),
+		ToolCalls:      calls,
+	}
 }
 
 // extractTagAttribute extracts the value of a named attribute from an XML-like tag string.
