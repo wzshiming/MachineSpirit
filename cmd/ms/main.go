@@ -249,7 +249,7 @@ func main() {
 						fmt.Printf("- %s: %s\n", tool.Name(), tool.Description())
 					}
 				} else if strings.HasPrefix(text, "/system-prompt") {
-					prompt := pm.BuildSystemPrompt("")
+					prompt := ag.BuildSystemPrompt()
 					fmt.Println("Current System Prompt:")
 					fmt.Println(prompt)
 					return
