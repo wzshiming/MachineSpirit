@@ -378,15 +378,22 @@ func (a *Agent) buildSystemPrompt() string {
 	// List available tools (low-level operations)
 	if len(a.tools) > 0 {
 		sb.WriteString(a.strings.AvailableToolsHeader)
+		hasSubSession := false
 		for _, tool := range a.tools {
 			if !tool.Enabled() {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 			sb.WriteString(FormatToolParameters(tool.Parameters()))
+			if tool.Name() == "sub_session" {
+				hasSubSession = true
+			}
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
 		sb.WriteString(a.strings.MultipleToolCallsHint)
+		if hasSubSession {
+			sb.WriteString(a.strings.SubSessionHint)
+		}
 		sb.WriteString(a.strings.PreferSkillsHint)
 	}
 
