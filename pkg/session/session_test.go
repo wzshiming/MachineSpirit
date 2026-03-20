@@ -114,7 +114,7 @@ func TestNoAutoCompression(t *testing.T) {
 	sess := NewSession(provider)
 
 	// Accumulate many messages - no automatic compression should occur
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_, err := sess.Complete(ctx, llm.ChatRequest{
 			Prompt: llm.Message{Role: llm.RoleUser, Content: "msg"},
 		})
@@ -310,7 +310,7 @@ func TestAutoSaveWithCompression(t *testing.T) {
 
 	// Add several messages
 	ctx := context.Background()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		_, err = session.Complete(ctx, llm.ChatRequest{
 			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
 		})

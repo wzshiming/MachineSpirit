@@ -119,19 +119,13 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	// Determine how many recent messages to keep
 	var keep int
 	if keepRecent > 0 {
-		keep = keepRecent
-		if keep < minRecentMessages {
-			keep = minRecentMessages
-		}
+		keep = max(keepRecent, minRecentMessages)
 		if keep >= currentCount {
 			return fmt.Errorf("keep_recent (%d) must be less than current transcript size (%d)", keep, currentCount)
 		}
 	} else {
 		// Default: keep half of current messages, minimum of 2
-		keep = currentCount / 2
-		if keep < minRecentMessages {
-			keep = minRecentMessages
-		}
+		keep = max(currentCount/2, minRecentMessages)
 	}
 
 	compressEnd := len(s.transcript) - keep

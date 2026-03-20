@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -38,10 +39,8 @@ func ValidateLocale(locale string) error {
 		return nil // empty locale is valid (means use default)
 	}
 
-	for _, supported := range SupportedLocales {
-		if locale == supported {
-			return nil
-		}
+	if slices.Contains(SupportedLocales, locale) {
+		return nil
 	}
 
 	return fmt.Errorf("unsupported locale '%s', only %v are supported", locale, SupportedLocales)
