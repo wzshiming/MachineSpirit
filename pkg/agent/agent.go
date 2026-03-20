@@ -16,11 +16,11 @@ import (
 
 // defaultCompressThreshold is the default number of transcript messages
 // before the agent automatically triggers compression.
-const defaultCompressThreshold = 50
+const defaultCompressThreshold = 200
 
 // defaultAutoCompressKeepRecent is the number of recent messages to keep
 // when auto-compression triggers.
-const defaultAutoCompressKeepRecent = 10
+const defaultAutoCompressKeepRecent = 50
 
 // DefaultCompressSystemPrompt is the default prompt used to instruct the LLM
 // how to summarize older conversation messages during transcript compression.
