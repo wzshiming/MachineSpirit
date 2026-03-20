@@ -121,6 +121,8 @@ func (s *Session) Complete(ctx context.Context, req SessionRequest) (llm.Message
 }
 
 // CompressTranscript reduces transcript size by summarizing older messages.
+// A separate sub-session is used for the summarization LLM call so that the
+// compression exchange does not pollute the main session's transcript.
 func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, systemPrompt string) (string, error) {
 	currentCount := len(s.transcript)
 	if currentCount <= minRecentMessages {
@@ -150,25 +152,24 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
 	}
 
-	prompt := llm.Message{
-		Role:    llm.RoleUser,
-		Content: sb.String(),
-	}
+	// Create a sub-session for the summarization LLM call.
+	// This keeps the compression exchange separate from the main transcript.
+	saveFile := fmt.Sprintf("compress-%s.ndjson", time.Now().UTC().Format("060102150405"))
+	subSess := NewSession(s.llm,
+		WithBaseDir(s.baseDir),
+		WithSave(saveFile),
+	)
 
-	history := s.transcript
-	s.transcript = append(s.transcript, prompt)
-
-	// Ask the LLM to summarize the older messages
-	summaryResp, err := s.llm.Complete(ctx, llm.ChatRequest{
+	summaryResp, err := subSess.Complete(ctx, SessionRequest{
 		SystemPrompt: systemPrompt,
-		Transcript:   history,
-		Prompt:       prompt,
+		Prompt: Message{
+			Role:    llm.RoleUser,
+			Content: sb.String(),
+		},
 	})
 	if err != nil {
 		return "", fmt.Errorf("compression failed: %w", err)
 	}
-
-	s.transcript = append(s.transcript, summaryResp)
 
 	// Persist the full history before archiving it
 	if err := s.Save(s.saveFile); err != nil {
