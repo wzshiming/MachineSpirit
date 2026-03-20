@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -192,43 +191,73 @@ func (a *Agent) executeTool(ctx context.Context, call toolCall) toolResult {
 }
 
 // parseToolCalls extracts tool calls from the LLM response.
-// Expected format: <tool_call>{"tool": "...", "input": {...}}</tool_call>
+// Expected format: <tool_call name="...">{...}</tool_call>
 func parseToolCalls(response string) []toolCall {
 	var calls []toolCall
 
 	// Simple XML-like tag parsing
 	for {
-		start := strings.Index(response, "<tool_call>")
+		start := strings.Index(response, "<tool_call")
 		if start == -1 {
 			break
 		}
-		end := strings.Index(response[start:], "</tool_call>")
+
+		// Find end of opening tag
+		tagEnd := strings.Index(response[start:], ">")
+		if tagEnd == -1 {
+			break
+		}
+		tagEnd += start
+
+		// Find closing tag
+		end := strings.Index(response[tagEnd:], "</tool_call>")
 		if end == -1 {
 			break
 		}
-		end += start
+		end += tagEnd
 
-		callJSON := response[start+len("<tool_call>") : end]
-		var call toolCall
+		openTag := response[start : tagEnd+1]
+		callJSON := strings.TrimSpace(response[tagEnd+1 : end])
+
+		// Extract tool name from the tag attribute
+		toolName := extractTagAttribute(openTag, "name")
 
 		if n, err := jsonrepair.RepairJSON(callJSON); err == nil {
 			callJSON = n
 		}
 
-		if err := json.NewDecoder(bytes.NewBuffer([]byte(callJSON))).Decode(&call); err == nil {
-			if call.Tool != "" {
-				calls = append(calls, call)
+		if toolName != "" {
+			// New format: tool name in tag attribute, JSON body is just the input
+			var input json.RawMessage
+			if err := json.Unmarshal([]byte(callJSON), &input); err == nil {
+				calls = append(calls, toolCall{Tool: toolName, Input: input})
 			} else {
-				slog.Warn("tool call missing 'tool' field", "json", callJSON)
+				slog.Warn("failed to parse tool call JSON", "error", err, "json", callJSON)
 			}
 		} else {
-			slog.Warn("failed to parse tool call JSON", "error", err, "json", callJSON)
+			slog.Warn("tool call missing 'name' attribute", "tag", openTag)
 		}
 
 		response = response[end+len("</tool_call>"):]
 	}
 
 	return calls
+}
+
+// extractTagAttribute extracts the value of a named attribute from an XML-like tag string.
+// For example, extractTagAttribute(`<tool_call name="bash">`, "name") returns "bash".
+func extractTagAttribute(tag, attr string) string {
+	search := attr + `="`
+	idx := strings.Index(tag, search)
+	if idx == -1 {
+		return ""
+	}
+	start := idx + len(search)
+	end := strings.Index(tag[start:], `"`)
+	if end == -1 {
+		return ""
+	}
+	return tag[start : start+end]
 }
 
 func (a *Agent) buildSystemPrompt() string {
@@ -276,14 +305,16 @@ func (a *Agent) buildFeedbackPrompt(calls []toolCall, results []toolResult, hasE
 	var sb strings.Builder
 
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf("## %s\n", result.Tool))
-		sb.WriteString(fmt.Sprintf("### Input: %s\n", string(calls[i].Input)))
 		if result.Error != "" {
+			sb.WriteString(fmt.Sprintf("<tool_result name=%q>\n", result.Tool))
+			sb.WriteString(fmt.Sprintf("### Input: %s\n", string(calls[i].Input)))
 			sb.WriteString(fmt.Sprintf("### Error: %s\n", result.Error))
+			sb.WriteString("</tool_result>\n\n")
 		} else {
-			sb.WriteString(fmt.Sprintf("### Output: %s\n", string(result.Output)))
+			sb.WriteString(fmt.Sprintf("<tool_result name=%q>\n", result.Tool))
+			sb.WriteString(fmt.Sprintf("%s\n", string(result.Output)))
+			sb.WriteString("</tool_result>\n\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	if !hasErrors {
