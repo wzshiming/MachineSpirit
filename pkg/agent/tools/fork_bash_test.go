@@ -285,14 +285,24 @@ func TestForkBashToolTerminateNonRunning(t *testing.T) {
 		t.Fatalf("start failed: %v", err)
 	}
 
-	// Wait for it to complete
+	// Wait for it to complete via the list action
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		tool.mu.Lock()
-		status := tool.forks["quick"].Status
-		tool.mu.Unlock()
-		if status != "running" {
-			break
+		listInput, _ := json.Marshal(map[string]string{"action": "list"})
+		listResult, err := tool.Execute(ctx, listInput)
+		if err != nil {
+			t.Fatalf("list failed: %v", err)
+		}
+		var lr map[string]any
+		if err := json.Unmarshal(listResult, &lr); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		forks := lr["forks"].([]any)
+		if len(forks) > 0 {
+			fork := forks[0].(map[string]any)
+			if fork["status"] != "running" {
+				break
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
