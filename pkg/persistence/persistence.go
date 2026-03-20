@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 // PersistenceManager handles loading and saving persistence files
 type PersistenceManager struct {
 	baseDir string
-	items   []string
 	locale  string // e.g., "en", "zh" - empty means default/no locale
 }
 
@@ -26,9 +26,6 @@ func NewPersistenceManager(baseDir string) (*PersistenceManager, error) {
 
 	return &PersistenceManager{
 		baseDir: baseDir,
-		items: []string{
-			i18n.FileAgents,
-		},
 	}, nil
 }
 
@@ -56,12 +53,41 @@ func (pm *PersistenceManager) getFilePath(filename string) string {
 	return i18n.GetLocalizedFilePath(pm.baseDir, filename, pm.locale)
 }
 
+func (pm *PersistenceManager) checkBootstrap() (bool, error) {
+	baseDir := pm.GetBaseDir()
+	bootstrapPath := filepath.Join(baseDir, i18n.FileBootstrap)
+
+	info, err := os.Stat(bootstrapPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check bootstrap file: %w", err)
+	}
+
+	if info.IsDir() {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // BuildSystemPrompt constructs a system prompt from persistence files
 func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
 	var parts []string
 
 	if basePrompt != "" {
 		parts = append(parts, basePrompt)
+	}
+
+	items := []string{
+		i18n.FileAgents,
+	}
+
+	bootstrap, _ := pm.checkBootstrap()
+	if bootstrap {
+		items = append(items, i18n.FileBootstrap)
+		parts = append(parts, "NOTE: Execute the `BOOTSTRAP.md` process as defined in the workspace.")
 	}
 
 	now := time.Now()
@@ -89,7 +115,7 @@ func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
 
 	parts = append(parts, "Workspace files:\n"+strings.Join(list, "\n"))
 
-	for _, item := range pm.items {
+	for _, item := range items {
 
 		path := pm.getFilePath(item)
 		raw, err := os.ReadFile(path)
