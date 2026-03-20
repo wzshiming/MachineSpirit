@@ -1,0 +1,234 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
+	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence"
+	"github.com/wzshiming/MachineSpirit/pkg/session"
+)
+
+// subSessionInfo tracks the state of a running or completed sub-session.
+type subSessionInfo struct {
+	Name      string    `json:"name"`
+	Task      string    `json:"task"`
+	Status    string    `json:"status"` // "running", "completed", "failed"
+	Result    string    `json:"result,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time,omitempty"`
+}
+
+// SubSessionTool allows the agent to spawn sub-sessions that run tasks
+// in the background and report results back through the main session's
+// input queue.
+type SubSessionTool struct {
+	llmProvider llm.LLM
+	pm          *persistence.PersistenceManager
+	mainSession *session.Session
+	buildTools  func() []agent.Tool
+
+	mu          sync.Mutex
+	subSessions map[string]*subSessionInfo
+}
+
+// NewSubSessionTool creates a new SubSessionTool.
+// buildTools is a factory function that returns the set of tools available
+// to each sub-session agent (typically a subset of the main agent's tools).
+func NewSubSessionTool(
+	llmProvider llm.LLM,
+	pm *persistence.PersistenceManager,
+	mainSession *session.Session,
+	buildTools func() []agent.Tool,
+) *SubSessionTool {
+	return &SubSessionTool{
+		llmProvider: llmProvider,
+		pm:          pm,
+		mainSession: mainSession,
+		buildTools:  buildTools,
+		subSessions: make(map[string]*subSessionInfo),
+	}
+}
+
+func (t *SubSessionTool) Name() string {
+	return "sub_session"
+}
+
+func (t *SubSessionTool) Description() string {
+	return `Manage sub-sessions that run tasks in the background. Actions:
+- start: Start a new sub-session. {"action": "start", "name": "unique-name", "task": "description of what to do"}
+- list: List all sub-sessions and their status. {"action": "list"}`
+}
+
+func (t *SubSessionTool) Enabled() bool {
+	return t.llmProvider != nil && t.mainSession != nil
+}
+
+func (t *SubSessionTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	var params struct {
+		Action string `json:"action"`
+		Name   string `json:"name"`
+		Task   string `json:"task"`
+	}
+
+	if err := json.Unmarshal(input, &params); err != nil {
+		return nil, fmt.Errorf("invalid input: %w", err)
+	}
+
+	switch params.Action {
+	case "start":
+		return t.startSubSession(ctx, params.Name, params.Task)
+	case "list":
+		return t.listSubSessions()
+	default:
+		return nil, fmt.Errorf("unknown action %q, use 'start' or 'list'", params.Action)
+	}
+}
+
+func (t *SubSessionTool) startSubSession(ctx context.Context, name, task string) (json.RawMessage, error) {
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if task == "" {
+		return nil, fmt.Errorf("task is required")
+	}
+
+	t.mu.Lock()
+	if existing, ok := t.subSessions[name]; ok && existing.Status == "running" {
+		t.mu.Unlock()
+		return nil, fmt.Errorf("sub-session %q is already running", name)
+	}
+
+	info := &subSessionInfo{
+		Name:      name,
+		Task:      task,
+		Status:    "running",
+		StartTime: time.Now(),
+	}
+	t.subSessions[name] = info
+	t.mu.Unlock()
+
+	// Launch the sub-session in a background goroutine.
+	go t.runSubSession(name, task)
+
+	result, err := json.Marshal(map[string]any{
+		"status":  "started",
+		"name":    name,
+		"task":    task,
+		"message": fmt.Sprintf("Sub-session %q started. Results will be sent to the main session's input queue when complete.", name),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return json.RawMessage(result), nil
+}
+
+func (t *SubSessionTool) runSubSession(name, task string) {
+	ctx := context.Background()
+
+	// Create a dedicated session for the sub-agent.
+	saveFile := fmt.Sprintf("sub-%s", name)
+	sess := session.NewSession(t.llmProvider,
+		session.WithPersistenceManager(t.pm),
+		session.WithSave(saveFile),
+	)
+
+	// Build tools for the sub-session (typically a subset without sub_session itself).
+	subTools := t.buildTools()
+
+	ag, err := agent.NewAgent(
+		sess,
+		agent.WithPersistenceManager(t.pm),
+		agent.WithTools(subTools...),
+		agent.WithSkills(skills.NewSkills()),
+		agent.WithMaxRetries(3),
+	)
+	if err != nil {
+		t.finishSubSession(name, "", fmt.Sprintf("failed to create sub-agent: %v", err))
+		return
+	}
+
+	result, err := ag.Execute(ctx, task)
+	if err != nil {
+		t.finishSubSession(name, "", fmt.Sprintf("sub-session execution failed: %v", err))
+		return
+	}
+
+	t.finishSubSession(name, result, "")
+}
+
+func (t *SubSessionTool) finishSubSession(name, result, errMsg string) {
+	t.mu.Lock()
+	info, ok := t.subSessions[name]
+	if ok {
+		info.EndTime = time.Now()
+		if errMsg != "" {
+			info.Status = "failed"
+			info.Error = errMsg
+		} else {
+			info.Status = "completed"
+			info.Result = result
+		}
+	}
+	t.mu.Unlock()
+
+	// Send the result back through the main session's input queue.
+	var content string
+	if errMsg != "" {
+		content = fmt.Sprintf("[Sub-session %q failed]: %s", name, errMsg)
+		slog.Warn("Sub-session failed", "name", name, "error", errMsg)
+	} else {
+		content = fmt.Sprintf("[Sub-session %q completed]: %s", name, result)
+		slog.Info("Sub-session completed", "name", name)
+	}
+
+	t.mainSession.AddInput(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   content,
+		Timestamp: time.Now(),
+	})
+}
+
+func (t *SubSessionTool) listSubSessions() (json.RawMessage, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	sessions := make([]map[string]any, 0, len(t.subSessions))
+	for _, info := range t.subSessions {
+		entry := map[string]any{
+			"name":       info.Name,
+			"task":       info.Task,
+			"status":     info.Status,
+			"start_time": info.StartTime.Format(time.RFC3339),
+		}
+		if !info.EndTime.IsZero() {
+			entry["end_time"] = info.EndTime.Format(time.RFC3339)
+			entry["duration"] = info.EndTime.Sub(info.StartTime).String()
+		}
+		if info.Result != "" {
+			entry["result"] = info.Result
+		}
+		if info.Error != "" {
+			entry["error"] = info.Error
+		}
+		sessions = append(sessions, entry)
+	}
+
+	result, err := json.Marshal(map[string]any{
+		"sub_sessions": sessions,
+		"total":        len(sessions),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return json.RawMessage(result), nil
+}

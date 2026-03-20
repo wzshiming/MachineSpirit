@@ -128,6 +128,14 @@ func main() {
 		tools.NewReadTool(),
 		tools.NewEditTool(),
 		tools.NewCompressTool(session),
+		tools.NewSubSessionTool(llm, pm, session, func() []agent.Tool {
+			return []agent.Tool{
+				tools.NewBashTool(),
+				tools.NewWriteTool(),
+				tools.NewReadTool(),
+				tools.NewEditTool(),
+			}
+		}),
 	}
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
@@ -156,6 +164,9 @@ func main() {
 		}
 
 		fmt.Println(response)
+
+		// Process any pending sub-session results
+		processQueuedInputs(ctx, ag, session)
 		return
 	}
 
@@ -251,6 +262,9 @@ func main() {
 			}
 
 			fmt.Println(response)
+
+			// Process any pending sub-session results
+			processQueuedInputs(ctx, ag, session)
 		},
 		func(in prompt.Document) []prompt.Suggest {
 			if in.Text == "" || !strings.HasPrefix(in.Text, "/") {
@@ -279,4 +293,19 @@ func main() {
 
 func isTty() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// processQueuedInputs drains all pending messages from the session's input
+// queue (e.g. results from completed sub-sessions) and feeds each one to the
+// agent for processing.
+func processQueuedInputs(ctx context.Context, ag *agent.Agent, sess *session.Session) {
+	for _, msg := range sess.DrainInputs() {
+		fmt.Printf("\n[Queued input]: %s\n", msg.Content)
+		response, err := ag.Execute(ctx, msg.Content)
+		if err != nil {
+			slog.Error("Failed to process queued input", "error", err)
+			continue
+		}
+		fmt.Println(response)
+	}
 }

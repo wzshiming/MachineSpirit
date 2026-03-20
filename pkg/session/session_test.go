@@ -478,3 +478,78 @@ func TestSessionAppendBehavior(t *testing.T) {
 		t.Fatalf("Expected 4 messages after load, got %d", session2.Size())
 	}
 }
+
+func TestSessionInputQueue(t *testing.T) {
+	provider := &stubLLM{}
+	sess := NewSession(provider)
+
+	// Initially no pending inputs
+	if sess.HasPendingInputs() {
+		t.Fatal("Expected no pending inputs initially")
+	}
+	if msgs := sess.DrainInputs(); len(msgs) != 0 {
+		t.Fatalf("Expected empty drain, got %d messages", len(msgs))
+	}
+
+	// Add some messages
+	msg1 := llm.Message{Role: llm.RoleUser, Content: "sub-session result 1", Timestamp: time.Now()}
+	msg2 := llm.Message{Role: llm.RoleUser, Content: "sub-session result 2", Timestamp: time.Now()}
+	sess.AddInput(msg1)
+	sess.AddInput(msg2)
+
+	// Check pending
+	if !sess.HasPendingInputs() {
+		t.Fatal("Expected pending inputs after AddInput")
+	}
+
+	// Drain and verify
+	msgs := sess.DrainInputs()
+	if len(msgs) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Content != "sub-session result 1" {
+		t.Errorf("Expected first message content 'sub-session result 1', got %q", msgs[0].Content)
+	}
+	if msgs[1].Content != "sub-session result 2" {
+		t.Errorf("Expected second message content 'sub-session result 2', got %q", msgs[1].Content)
+	}
+
+	// After drain, queue should be empty
+	if sess.HasPendingInputs() {
+		t.Fatal("Expected no pending inputs after drain")
+	}
+	if msgs := sess.DrainInputs(); len(msgs) != 0 {
+		t.Fatalf("Expected empty drain after already drained, got %d messages", len(msgs))
+	}
+}
+
+func TestSessionInputQueueConcurrent(t *testing.T) {
+	provider := &stubLLM{}
+	sess := NewSession(provider)
+
+	const numMessages = 50
+	done := make(chan struct{})
+
+	// Send messages from multiple goroutines
+	for i := range numMessages {
+		go func(n int) {
+			sess.AddInput(llm.Message{
+				Role:      llm.RoleUser,
+				Content:   fmt.Sprintf("message %d", n),
+				Timestamp: time.Now(),
+			})
+			done <- struct{}{}
+		}(i)
+	}
+
+	// Wait for all sends to complete
+	for range numMessages {
+		<-done
+	}
+
+	// Drain and verify all messages were received
+	msgs := sess.DrainInputs()
+	if len(msgs) != numMessages {
+		t.Fatalf("Expected %d messages, got %d", numMessages, len(msgs))
+	}
+}
