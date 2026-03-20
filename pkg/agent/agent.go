@@ -19,14 +19,6 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
-// defaultCompressThreshold is the default number of transcript messages
-// before the agent automatically triggers compression.
-const defaultCompressThreshold = 200
-
-// defaultAutoCompressKeepRecent is the number of recent messages to keep
-// when auto-compression triggers.
-const defaultAutoCompressKeepRecent = 50
-
 // defaultInputQueueSize is the default buffer size for the input queue.
 const defaultInputQueueSize = 64
 
@@ -46,7 +38,6 @@ type Agent struct {
 	tools             map[string]Tool
 	skills            *skills.Skills
 	maxRetries        int
-	compressThreshold int
 	strings           AgentStrings
 	mut               sync.Mutex
 	inputQueue        chan llm.Message
@@ -78,16 +69,6 @@ func WithMaxRetries(max int) opt {
 	}
 }
 
-// WithCompressThreshold sets the transcript message count threshold for
-// automatic compression. When the session transcript exceeds this count,
-// the agent will compress it before the next LLM call.
-// A value of 0 or negative disables auto-compression.
-func WithCompressThreshold(threshold int) opt {
-	return func(a *Agent) {
-		a.compressThreshold = threshold
-	}
-}
-
 // WithPersistenceManager sets the persistence manager for the agent.
 func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
 	return func(a *Agent) {
@@ -104,9 +85,8 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 	agent := &Agent{
 		session:           session,
 		tools:             make(map[string]Tool),
-		maxRetries:        3,
-		compressThreshold: defaultCompressThreshold,
-		inputQueue:        make(chan llm.Message, defaultInputQueueSize),
+		maxRetries: 3,
+		inputQueue: make(chan llm.Message, defaultInputQueueSize),
 		inputNotify:       make(chan struct{}, 1),
 	}
 
@@ -186,9 +166,6 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 		feedbackPrompt += fmt.Sprintf(a.strings.ReplanPrompt, retryCount+1, a.maxRetries)
 	}
 
-	// Auto-compress if transcript has grown past the threshold
-	a.maybeAutoCompress(ctx)
-
 	// Get the next response from the LLM
 	nextResponse, err := a.session.Complete(ctx,
 		session.SessionRequest{
@@ -205,73 +182,6 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 	}
 
 	return a.processResponse(ctx, output, nextResponse.Content, retryCount+1)
-}
-
-// maybeAutoCompress checks the session transcript size and automatically
-// compresses it if it exceeds the configured threshold. Compression runs in
-// a background goroutine using a dedicated sub-session for the summarization
-// LLM call, so the main thread is not blocked.
-func (a *Agent) maybeAutoCompress(ctx context.Context) {
-	if a.compressThreshold <= 0 {
-		return
-	}
-	if a.session.Size() <= a.compressThreshold {
-		return
-	}
-
-	text, keepRecent, originalSize, err := a.session.PrepareCompress(defaultAutoCompressKeepRecent)
-	if err != nil {
-		slog.Warn("Auto-compression preparation failed", "error", err)
-		return
-	}
-
-	slog.Info("Auto-compressing transcript in background",
-		"size", a.session.Size(),
-		"threshold", a.compressThreshold,
-	)
-
-	go a.runAutoCompress(text, keepRecent, originalSize)
-}
-
-// runAutoCompress performs auto-compression in a background goroutine.
-func (a *Agent) runAutoCompress(text string, keepRecent, originalSize int) {
-	ctx := context.Background()
-
-	saveFile := fmt.Sprintf("auto-compress-%s.ndjson", time.Now().UTC().Format("060102150405"))
-	subSess := session.NewSession(a.session.LLM(),
-		session.WithBaseDir(a.session.BaseDir()),
-		session.WithSave(saveFile),
-	)
-
-	summaryResp, err := subSess.Complete(ctx, session.SessionRequest{
-		SystemPrompt: DefaultCompressSystemPrompt,
-		Prompt: session.Message{
-			Role:    session.RoleUser,
-			Content: text,
-		},
-	})
-	if err != nil {
-		slog.Warn("Auto-compression sub-session failed", "error", err)
-		return
-	}
-
-	archivePath, err := a.session.ApplyCompression(summaryResp.Content, keepRecent, originalSize)
-	if err != nil {
-		slog.Warn("Failed to apply auto-compression", "error", err)
-		return
-	}
-
-	slog.Info("Auto-compression completed",
-		"before", originalSize,
-		"after", a.session.Size(),
-		"archive", archivePath,
-	)
-
-	a.AddInput(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   fmt.Sprintf("[Auto-compression completed]: %d messages compressed to %d.", originalSize, a.session.Size()),
-		Timestamp: time.Now(),
-	})
 }
 
 // AddInput enqueues a message into the agent's input queue.
@@ -539,6 +449,7 @@ func (a *Agent) BuildSystemPrompt() string {
 	if len(a.tools) > 0 {
 		sb.WriteString(a.strings.AvailableToolsHeader)
 		hasSubSession := false
+		hasCompress := false
 		for _, tool := range a.tools {
 			if !tool.Enabled() {
 				continue
@@ -548,11 +459,17 @@ func (a *Agent) BuildSystemPrompt() string {
 			if !hasSubSession && tool.Name() == "sub_session" {
 				hasSubSession = true
 			}
+			if !hasCompress && tool.Name() == "compress_transcript" {
+				hasCompress = true
+			}
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
 		sb.WriteString(a.strings.MultipleToolCallsHint)
 		if hasSubSession {
 			sb.WriteString(a.strings.SubSessionHint)
+		}
+		if hasCompress {
+			sb.WriteString(a.strings.CompressHint)
 		}
 		sb.WriteString(a.strings.PreferSkillsHint)
 	}

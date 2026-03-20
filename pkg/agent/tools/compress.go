@@ -46,7 +46,11 @@ func (t *CompressTool) Name() string {
 
 func (t *CompressTool) Description() string {
 	currentSize := t.session.Size()
-	return fmt.Sprintf("Compress the conversation transcript by summarizing older messages into a concise summary. Use this when the transcript is growing large to free up context. Current transcript size: %d messages.", currentSize)
+	return fmt.Sprintf(
+		"Compress the conversation transcript by summarizing older messages into a concise summary. "+
+			"You MUST call this tool when the transcript exceeds %d messages to free up context window space. "+
+			"Current transcript size: %d messages.",
+		compressToolThreshold, currentSize)
 }
 
 func (t *CompressTool) Parameters() []agent.ToolParameter {
