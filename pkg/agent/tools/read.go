@@ -32,7 +32,7 @@ func (t *ReadTool) Parameters() []agent.ToolParameter {
 	return []agent.ToolParameter{
 		{Name: "path", Type: "string", Required: true, Description: "Absolute path to the file to read."},
 		{Name: "max", Type: "int", Required: false, Description: "Maximum number of lines to read. 0 means all lines."},
-		{Name: "start", Type: "int", Required: false, Description: "Line number to start reading from (1-based). 0 means from the beginning."},
+		{Name: "start", Type: "int", Required: false, Description: "Line number to start reading from (1-based). Omit or set to 0 to read from the beginning."},
 	}
 }
 
