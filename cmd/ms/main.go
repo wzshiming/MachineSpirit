@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Xuanwo/go-locale"
@@ -167,12 +169,19 @@ func main() {
 		return
 	}
 
+	histPath := historyFilePath(pm.GetBaseDir())
+	histLines, err := loadHistory(histPath)
+	if err != nil {
+		slog.Warn("Failed to load input history", "error", err)
+	}
+
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
 			if text == "" {
 				return
 			}
+			appendHistory(histPath, text)
 			if strings.HasPrefix(text, "/") {
 				if strings.HasPrefix(text, "/help") {
 					fmt.Println("Enter your message to interact with the agent.")
@@ -278,6 +287,7 @@ func main() {
 			return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
 		},
 		prompt.OptionPrefix("> "),
+		prompt.OptionHistory(histLines),
 		prompt.OptionSetExitCheckerOnInput(func(in string, breakline bool) bool {
 			exit := breakline && strings.TrimSpace(in) == "/bye"
 			return exit
@@ -288,6 +298,52 @@ func main() {
 
 func isTty() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// historyFilePath returns the path to the input history file within the
+// workspace's session directory, creating the directory if necessary.
+func historyFilePath(baseDir string) string {
+	return filepath.Join(baseDir, ".ms_history")
+}
+
+// loadHistory reads newline-delimited input history from path.
+// It returns nil (no error) when the file does not exist.
+func loadHistory(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if line := scanner.Text(); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, scanner.Err()
+}
+
+// appendHistory appends a single line to the history file, creating the
+// file and its parent directory if they do not exist.
+func appendHistory(path, line string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		slog.Warn("Failed to create history directory", "error", err)
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Warn("Failed to open history file", "error", err)
+		return
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintln(f, line); err != nil {
+		slog.Warn("Failed to write to history file", "error", err)
+	}
 }
 
 // processQueuedInputs drains all pending messages from the session's input
