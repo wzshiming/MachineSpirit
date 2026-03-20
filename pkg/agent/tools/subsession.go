@@ -62,9 +62,15 @@ func (t *SubSessionTool) Name() string {
 }
 
 func (t *SubSessionTool) Description() string {
-	return `Manage sub-sessions that run tasks in the background. Actions:
-- start: Start a new sub-session. {"action": "start", "name": "unique-name", "task": "description of what to do"}
-- list: List all sub-sessions and their status. {"action": "list"}`
+	return `Manage sub-sessions that run tasks in the background.`
+}
+
+func (t *SubSessionTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "action", Type: "string", Required: true, Description: "The action to perform: 'start' to start a new sub-session, 'list' to list all sub-sessions."},
+		{Name: "name", Type: "string", Required: false, Description: "Unique name for the sub-session (required for 'start' action)."},
+		{Name: "task", Type: "string", Required: false, Description: "Description of the task to execute in the sub-session (required for 'start' action)."},
+	}
 }
 
 func (t *SubSessionTool) Enabled() bool {

@@ -122,21 +122,21 @@ func main() {
 		slog.Info("Loaded previous session from session/current.ndjson")
 	}
 
-	toolsList := []agent.Tool{
+	baseTools := []agent.Tool{
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
 		tools.NewEditTool(),
-		tools.NewCompressTool(session),
-		tools.NewSubSessionTool(llm, pm, session, func() []agent.Tool {
-			return []agent.Tool{
-				tools.NewBashTool(),
-				tools.NewWriteTool(),
-				tools.NewReadTool(),
-				tools.NewEditTool(),
-			}
-		}),
 	}
+
+	subSession := tools.NewSubSessionTool(llm, pm, session, func() []agent.Tool {
+		return baseTools
+	})
+
+	toolsList := append(baseTools,
+		tools.NewCompressTool(session),
+		subSession,
+	)
 	skillsList := skills.NewSkills(os.Getenv("HOME")+"/.agents/skills", ".agents/skills")
 
 	ag, err := agent.NewAgent(
