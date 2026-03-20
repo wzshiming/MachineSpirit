@@ -7,11 +7,11 @@ import (
 	"os"
 )
 
-// WriteTool allows the agent to read  files.
+// WriteTool allows the agent to write files.
 type WriteTool struct {
 }
 
-// NewWriteTool creates a new Read tool.
+// NewWriteTool creates a new Write tool.
 func NewWriteTool() *WriteTool {
 	return &WriteTool{}
 }
@@ -21,7 +21,8 @@ func (t *WriteTool) Name() string {
 }
 
 func (t *WriteTool) Description() string {
-	return "Write content to a file. {\"path\": \"/path/to/file\", \"content\": \"new content\"}."
+	return "Write content to a file. {\"path\": \"/path/to/file\", \"content\": \"new content\", \"append\": false}." +
+		" append: set to true to append instead of overwrite."
 }
 
 func (t *WriteTool) Enabled() bool {
@@ -32,6 +33,7 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	var params struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
+		Append  bool   `json:"append"`
 	}
 
 	err := json.Unmarshal(input, &params)
@@ -43,7 +45,18 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 		return nil, fmt.Errorf("path parameter is required")
 	}
 
-	err = os.WriteFile(params.Path, []byte(params.Content), 0644)
+	var file *os.File
+	if params.Append {
+		file, err = os.OpenFile(params.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	} else {
+		file, err = os.OpenFile(params.Path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(params.Content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
@@ -51,6 +64,8 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	result, err := json.Marshal(map[string]any{
 		"path":   params.Path,
 		"status": "success",
+		"bytes":  len(params.Content),
+		"append": params.Append,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
