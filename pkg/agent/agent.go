@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
@@ -47,6 +48,7 @@ type Agent struct {
 	maxRetries        int
 	compressThreshold int
 	strings           AgentStrings
+	mut               sync.Mutex
 	inputQueue        chan llm.Message
 	inputNotify       chan struct{}
 }
@@ -124,6 +126,9 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 
 // Execute processes a user request through the agent loop:
 func (a *Agent) Execute(ctx context.Context, userInput string, output io.Writer) error {
+	a.mut.Lock()
+	defer a.mut.Unlock()
+
 	// Build the enhanced prompt with memory context and tool information
 	enhancedPrompt := a.buildPrompt(userInput)
 

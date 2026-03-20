@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
@@ -181,17 +180,11 @@ func main() {
 		slog.Warn("Failed to load input history", "error", err)
 	}
 
-	// mu serialises agent execution between the prompt handler and the
-	// background goroutine that processes sub-session results.
-	var mu sync.Mutex
-
 	// Background goroutine: process sub-session results as they arrive,
 	// without waiting for user input.
 	go func() {
 		for range ag.InputNotify() {
-			mu.Lock()
 			processQueuedInputs(ctx, ag)
-			mu.Unlock()
 		}
 	}()
 
@@ -281,8 +274,6 @@ func main() {
 				}
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
 			err := ag.Execute(ctx, text, os.Stdout)
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
@@ -373,19 +364,21 @@ func appendHistory(path, line string) {
 // processed, preventing unbounded recursion.
 func processQueuedInputs(ctx context.Context, ag *agent.Agent) {
 	const maxDrainRounds = 3
-	for round := range maxDrainRounds {
+	for range maxDrainRounds {
 		msgs := ag.DrainInputs()
 		if len(msgs) == 0 {
 			break
 		}
-		_ = round
+		list := make([]string, 0, len(msgs))
 		for _, msg := range msgs {
-			fmt.Printf("\n[Queued input]: %s\n", msg.Content)
-			err := ag.Execute(ctx, msg.Content, os.Stdout)
-			if err != nil {
-				slog.Error("Failed to process queued input", "error", err)
-				continue
-			}
+			list = append(list, msg.Content)
+		}
+
+		combined := strings.Join(list, "\n\n")
+		err := ag.Execute(ctx, combined, os.Stdout)
+		if err != nil {
+			slog.Error("Failed to process queued input", "error", err)
+			continue
 		}
 	}
 }
