@@ -126,7 +126,6 @@ func main() {
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
-		tools.NewEditTool(),
 	}
 
 	subSession := tools.NewSubSessionTool(llm, pm, session, func() []agent.Tool {

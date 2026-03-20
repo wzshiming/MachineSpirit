@@ -73,7 +73,6 @@ func (t *WriteTool) Execute(ctx context.Context, input json.RawMessage) (json.Ra
 	result, err := json.Marshal(map[string]any{
 		"path":   params.Path,
 		"status": "success",
-		"bytes":  len(params.Content),
 		"append": params.Append,
 	})
 	if err != nil {

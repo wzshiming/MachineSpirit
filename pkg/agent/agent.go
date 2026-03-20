@@ -197,7 +197,7 @@ func parseToolCalls(response string) []toolCall {
 
 	// Simple XML-like tag parsing
 	for {
-		start := strings.Index(response, "<tool_call")
+		start := strings.Index(response, "<tool_call name=\"")
 		if start == -1 {
 			break
 		}

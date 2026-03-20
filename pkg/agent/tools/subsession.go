@@ -139,7 +139,7 @@ func (t *SubSessionTool) startSubSession(ctx context.Context, name, task string)
 
 func (t *SubSessionTool) runSubSession(name, task string) {
 	// Use a fresh background context so the sub-session is not cancelled
-	// when the parent tool-call context ends (the caller returns immediately
+	// when the parent tool_call context ends (the caller returns immediately
 	// after launching the goroutine).
 	ctx := context.Background()
 
