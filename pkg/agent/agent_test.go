@@ -44,6 +44,30 @@ func TestParseToolCalls(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name: "tool_call in code string literal",
+			input: `start := strings.Index(response, "<tool_call\")\n` +
+				`\t\tif start == -1 {\n` +
+				`\t\t\tnonToolContent.WriteString(response)\n` +
+				`\t\t\tbreak\n` +
+				`\t\t}\n\n` +
+				`\t\tnonToolContent.WriteString(response[:start])\n\n` +
+				`\t\ttagEnd := strings.Index(response[start:], \">")`,
+			expected: nil,
+		},
+		{
+			name:     "tool_call followed by non-space non-gt",
+			input:    `<tool_call_extra name="bash">{"command": "ls"}</tool_call_extra>`,
+			expected: nil,
+		},
+		{
+			name: "valid tool call after false match in code",
+			input: `Here is code: "<tool_call\")` + "\n" +
+				`And here is a real call: <tool_call name="bash">{"command": "ls"}</tool_call>`,
+			expected: []toolCall{
+				{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
+			},
+		},
+		{
 			name:  "whitespace around JSON",
 			input: `<tool_call name="bash">  {"command": "ls"}  </tool_call>`,
 			expected: []toolCall{

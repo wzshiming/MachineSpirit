@@ -202,12 +202,30 @@ func parseToolCalls(response string) []toolCall {
 			break
 		}
 
+		// Validate that <tool_call is followed by a space or '>',
+		// not other characters (e.g. when <tool_call appears inside code/strings).
+		nextCharIdx := start + len("<tool_call")
+		if nextCharIdx >= len(response) {
+			break
+		}
+		nextChar := response[nextCharIdx]
+		if nextChar != ' ' && nextChar != '>' {
+			response = response[nextCharIdx:]
+			continue
+		}
+
 		// Find end of opening tag
 		tagEnd := strings.Index(response[start:], ">")
 		if tagEnd == -1 {
 			break
 		}
 		tagEnd += start
+
+		// Reject tags that span multiple lines (likely false matches from code output).
+		if strings.ContainsAny(response[start:tagEnd], "\n\r") {
+			response = response[start+len("<tool_call"):]
+			continue
+		}
 
 		// Find closing tag
 		end := strings.Index(response[tagEnd:], "</tool_call>")
