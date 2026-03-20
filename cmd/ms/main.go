@@ -132,7 +132,9 @@ func main() {
 
 	var ag *agent.Agent
 	subSession := tools.NewSubSessionTool(llm, pm, func(msg llmpkg.Message) {
-		ag.AddInput(msg)
+		if ag != nil {
+			ag.AddInput(msg)
+		}
 	}, func() []agent.Tool {
 		return baseTools
 	})
