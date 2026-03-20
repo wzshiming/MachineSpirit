@@ -9,6 +9,14 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
+const (
+	// minAllowedKeepRecent is the minimum allowed value for the keep_recent
+	// parameter, ensuring at least one user-assistant exchange is preserved.
+	minAllowedKeepRecent   = 2
+	defaultKeepRecent      = 10
+	compressToolThreshold  = 10
+)
+
 // CompressTool allows the agent to compress the conversation transcript.
 type CompressTool struct {
 	session *session.Session
@@ -27,21 +35,19 @@ func (t *CompressTool) Name() string {
 
 func (t *CompressTool) Description() string {
 	currentSize := t.session.Size()
-	return fmt.Sprintf("Compress the conversation transcript by summarizing older messages into a concise summary. Current transcript size: %d messages.", currentSize)
+	return fmt.Sprintf("Compress the conversation transcript by summarizing older messages into a concise summary. Use this when the transcript is growing large to free up context. Current transcript size: %d messages.", currentSize)
 }
 
 func (t *CompressTool) Parameters() []agent.ToolParameter {
 	return []agent.ToolParameter{
-		{Name: "keep_recent", Type: "int", Required: true, Description: "Number of recent messages to keep uncompressed. Must be greater than 2."},
-		{Name: "system_prompt", Type: "string", Required: true, Description: "The prompt used to instruct the LLM how to summarize the compressed messages."},
+		{Name: "keep_recent", Type: "int", Required: false, Description: fmt.Sprintf("Number of recent messages to keep uncompressed. Defaults to %d. Must be greater than %d if provided.", defaultKeepRecent, minAllowedKeepRecent)},
+		{Name: "system_prompt", Type: "string", Required: false, Description: "The prompt used to instruct the LLM how to summarize the compressed messages. A sensible default is used if omitted."},
 	}
 }
 
 func (t *CompressTool) Enabled() bool {
-	return t.session != nil && t.session.Size() > minRecentMessages*2
+	return t.session != nil && t.session.Size() > compressToolThreshold
 }
-
-const minRecentMessages = 2
 
 func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	var params struct {
@@ -53,12 +59,16 @@ func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
 
-	if params.KeepRecent <= 2 {
-		return nil, fmt.Errorf("keep_recent must be greater than 2")
+	// Apply defaults for optional parameters
+	if params.KeepRecent == 0 {
+		params.KeepRecent = defaultKeepRecent
+	}
+	if params.KeepRecent <= minAllowedKeepRecent {
+		return nil, fmt.Errorf("keep_recent must be greater than %d", minAllowedKeepRecent)
 	}
 
 	if params.SystemPrompt == "" {
-		return nil, fmt.Errorf("system_prompt is required")
+		params.SystemPrompt = agent.DefaultCompressSystemPrompt
 	}
 
 	beforeCount := t.session.Size()

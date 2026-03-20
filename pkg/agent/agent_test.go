@@ -1,10 +1,28 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence"
+	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
+
+// stubLLM is a minimal LLM for testing that echoes back the prompt.
+type stubLLM struct{}
+
+func (s *stubLLM) Complete(ctx context.Context, req llm.ChatRequest) (llm.Message, error) {
+	return llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   "done: " + req.Prompt.Content,
+		Timestamp: time.Unix(1, 0),
+	}, nil
+}
 
 func TestParseToolCalls(t *testing.T) {
 	tests := []struct {
@@ -254,4 +272,135 @@ func TestBuildFeedbackPrompt(t *testing.T) {
 			t.Error("should not include final response prompt when there are errors")
 		}
 	})
+}
+
+func TestMaybeAutoCompress(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm, err := persistence.NewPersistenceManager(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create persistence manager: %v", err)
+	}
+
+	provider := &stubLLM{}
+	sess := session.NewSession(provider,
+		session.WithPersistenceManager(pm),
+		session.WithSave("auto-compress-test"),
+	)
+
+	ctx := context.Background()
+	// Add enough messages to exceed a low threshold
+	for i := range 10 {
+		_, err := sess.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+	// 10 exchanges = 20 messages
+	if sess.Size() != 20 {
+		t.Fatalf("expected 20 messages, got %d", sess.Size())
+	}
+
+	ag, err := NewAgent(sess,
+		WithPersistenceManager(pm),
+		WithCompressThreshold(15), // Set threshold lower than current size
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	// maybeAutoCompress should compress because size (20) > threshold (15)
+	ag.maybeAutoCompress(ctx)
+
+	if sess.Size() >= 20 {
+		t.Errorf("expected transcript to be compressed below 20 messages, got %d", sess.Size())
+	}
+}
+
+func TestMaybeAutoCompressNoopBelowThreshold(t *testing.T) {
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	ctx := context.Background()
+	// Add a few messages
+	for i := range 3 {
+		_, err := sess.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+	originalSize := sess.Size() // 6 messages
+
+	ag, err := NewAgent(sess,
+		WithCompressThreshold(50), // Threshold much higher than current size
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	ag.maybeAutoCompress(ctx)
+
+	if sess.Size() != originalSize {
+		t.Errorf("expected no compression, size should remain %d, got %d", originalSize, sess.Size())
+	}
+}
+
+func TestMaybeAutoCompressDisabled(t *testing.T) {
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	ctx := context.Background()
+	for i := range 5 {
+		_, err := sess.Complete(ctx, llm.ChatRequest{
+			Prompt: llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("message %d", i)},
+		})
+		if err != nil {
+			t.Fatalf("Complete returned error: %v", err)
+		}
+	}
+	originalSize := sess.Size()
+
+	ag, err := NewAgent(sess,
+		WithCompressThreshold(0), // Disabled
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	ag.maybeAutoCompress(ctx)
+
+	if sess.Size() != originalSize {
+		t.Errorf("expected no compression when disabled, size should remain %d, got %d", originalSize, sess.Size())
+	}
+}
+
+func TestWithCompressThresholdDefault(t *testing.T) {
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	ag, err := NewAgent(sess)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	if ag.compressThreshold != defaultCompressThreshold {
+		t.Errorf("expected default compress threshold %d, got %d", defaultCompressThreshold, ag.compressThreshold)
+	}
+}
+
+func TestWithCompressThresholdCustom(t *testing.T) {
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	ag, err := NewAgent(sess, WithCompressThreshold(100))
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	if ag.compressThreshold != 100 {
+		t.Errorf("expected compress threshold 100, got %d", ag.compressThreshold)
+	}
 }
