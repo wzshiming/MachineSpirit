@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
+	"time"
 
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
+	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -119,7 +122,7 @@ func (a *Agent) Execute(ctx context.Context, userInput string, output io.Writer)
 	// Decision-making: initial LLM call
 	response, err := a.session.Complete(ctx,
 		session.SessionRequest{
-			SystemPrompt: a.buildSystemPrompt(),
+			SystemPrompt: a.BuildSystemPrompt(),
 			Prompt: session.Message{
 				Role:    session.RoleUser,
 				Content: enhancedPrompt,
@@ -176,7 +179,7 @@ func (a *Agent) processResponse(ctx context.Context, output io.Writer, response 
 	// Get the next response from the LLM
 	nextResponse, err := a.session.Complete(ctx,
 		session.SessionRequest{
-			SystemPrompt: a.buildSystemPrompt(),
+			SystemPrompt: a.BuildSystemPrompt(),
 			Prompt: session.Message{
 				Role:    session.RoleUser,
 				Content: feedbackPrompt,
@@ -360,10 +363,63 @@ func extractTagAttribute(tag, attr string) string {
 	return tag[start : start+end]
 }
 
-func (a *Agent) buildSystemPrompt() string {
-	var sb strings.Builder
+// BuildSystemPrompt constructs the full system prompt including workspace
+// context from persistence files and the agent's available skills and tools.
+func (a *Agent) BuildSystemPrompt() string {
+	var parts []string
 
-	sb.WriteString(a.pm.BuildSystemPrompt(""))
+	if a.pm != nil {
+		baseDir := a.pm.GetBaseDir()
+
+		items := []string{
+			i18n.FileAgents,
+		}
+
+		bootstrap, _ := a.pm.CheckBootstrap()
+		if bootstrap {
+			items = append(items, i18n.FileBootstrap)
+			parts = append(parts, "NOTE: Execute the `BOOTSTRAP.md` process as defined in the workspace.")
+		}
+
+		now := time.Now()
+		zone, offset := now.Zone()
+		parts = append(parts, fmt.Sprintf("Current time %s, zone %s (UTC%+d)", now.Format(time.RFC3339), zone, offset/3600))
+
+		parts = append(parts, fmt.Sprintf("Workspace %s", baseDir))
+
+		// files of baseDir
+		entrys, err := os.ReadDir(baseDir)
+		if err != nil {
+			slog.Warn("Failed to read workspace directory", "dir", baseDir, "error", err)
+		}
+
+		list := make([]string, 0, len(entrys))
+		for _, entry := range entrys {
+			if entry.IsDir() {
+				list = append(list, entry.Name()+"/")
+			} else {
+				list = append(list, entry.Name())
+			}
+		}
+
+		parts = append(parts, "Workspace files:\n"+strings.Join(list, "\n"))
+
+		for _, item := range items {
+			content, err := a.pm.ReadFile(item)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					slog.Warn("Failed to read persistence file", "file", item, "error", err)
+				}
+				continue
+			}
+			if content != "" {
+				parts = append(parts, content)
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(strings.Join(parts, "\n\n"))
 
 	// List available skills (higher-level capabilities)
 	if list := a.skills.List(); len(list) != 0 {

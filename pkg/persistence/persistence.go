@@ -2,11 +2,9 @@ package persistence
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 )
@@ -53,7 +51,8 @@ func (pm *PersistenceManager) getFilePath(filename string) string {
 	return i18n.GetLocalizedFilePath(pm.baseDir, filename, pm.locale)
 }
 
-func (pm *PersistenceManager) checkBootstrap() (bool, error) {
+// CheckBootstrap reports whether a BOOTSTRAP.md file exists in the workspace.
+func (pm *PersistenceManager) CheckBootstrap() (bool, error) {
 	baseDir := pm.GetBaseDir()
 	bootstrapPath := filepath.Join(baseDir, i18n.FileBootstrap)
 
@@ -72,69 +71,13 @@ func (pm *PersistenceManager) checkBootstrap() (bool, error) {
 	return true, nil
 }
 
-// BuildSystemPrompt constructs a system prompt from persistence files
-func (pm *PersistenceManager) BuildSystemPrompt(basePrompt string) string {
-	var parts []string
-
-	if basePrompt != "" {
-		parts = append(parts, basePrompt)
-	}
-
-	items := []string{
-		i18n.FileAgents,
-	}
-
-	bootstrap, _ := pm.checkBootstrap()
-	if bootstrap {
-		items = append(items, i18n.FileBootstrap)
-		parts = append(parts, "NOTE: Execute the `BOOTSTRAP.md` process as defined in the workspace.")
-	}
-
-	now := time.Now()
-
-	zone, offset := now.Zone()
-
-	parts = append(parts, fmt.Sprintf("Current time %s, zone %s (UTC%+d)", now.Format(time.RFC3339), zone, offset/3600))
-
-	parts = append(parts, fmt.Sprintf("Workspace %s", pm.baseDir))
-
-	// files of baseDir
-	entrys, err := os.ReadDir(pm.baseDir)
+// ReadFile reads a persistence file by name, respecting locale settings.
+// It returns the trimmed content and any error.
+func (pm *PersistenceManager) ReadFile(filename string) (string, error) {
+	path := pm.getFilePath(filename)
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		slog.Warn("Failed to read workspace directory", "dir", pm.baseDir, "error", err)
+		return "", err
 	}
-
-	list := make([]string, 0, len(entrys))
-	for _, entry := range entrys {
-		if entry.IsDir() {
-			list = append(list, entry.Name()+"/")
-		} else {
-			list = append(list, entry.Name())
-		}
-	}
-
-	parts = append(parts, "Workspace files:\n"+strings.Join(list, "\n"))
-
-	for _, item := range items {
-
-		path := pm.getFilePath(item)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				slog.Warn("Failed to read persistence file", "path", path, "error", err)
-			}
-			continue
-		}
-
-		content := string(raw)
-		content = strings.TrimSpace(content)
-		if content == "" {
-			continue
-		}
-
-		parts = append(parts, content)
-
-	}
-
-	return strings.Join(parts, "\n\n")
+	return strings.TrimSpace(string(raw)), nil
 }
