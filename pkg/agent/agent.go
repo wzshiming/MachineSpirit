@@ -282,6 +282,7 @@ func (a *Agent) buildSystemPrompt() string {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
+			sb.WriteString(FormatToolParameters(tool.Parameters()))
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
 		sb.WriteString(a.strings.MultipleToolCallsHint)

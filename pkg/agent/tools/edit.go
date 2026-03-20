@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
 )
 
 // EditTool allows the agent to edit files by replacing or inserting content.
@@ -22,10 +24,16 @@ func (t *EditTool) Name() string {
 }
 
 func (t *EditTool) Description() string {
-	return `Edit a file by replacing lines or inserting content. 
-{"path": "/path/to/file", "start": 1, "end": 10, "content": "new content"} - replace lines 1-10
-{"path": "/path/to/file", "start": 5, "content": "new content"} - insert after line 5
-{"path": "/path/to/file", "start": 1, "end": -1, "content": "new content"} - replace from line 1 to end`
+	return "Edit a file by replacing a range of lines or inserting content after a specific line."
+}
+
+func (t *EditTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "path", Type: "string", Required: true, Description: "Absolute path to the file to edit."},
+		{Name: "content", Type: "string", Required: true, Description: "The new content to insert or replace with."},
+		{Name: "start", Type: "int", Required: false, Description: "Start line number (1-based). When used with end, defines the range to replace. When used alone, inserts content after this line."},
+		{Name: "end", Type: "int", Required: false, Description: "End line number for replacement. Use -1 to replace from start to end of file. Omit to insert instead of replace."},
+	}
 }
 
 func (t *EditTool) Enabled() bool {

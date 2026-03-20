@@ -113,6 +113,42 @@ func TestExtractTagAttribute(t *testing.T) {
 	}
 }
 
+func TestFormatToolParameters(t *testing.T) {
+	t.Run("empty parameters", func(t *testing.T) {
+		result := FormatToolParameters(nil)
+		if result != "" {
+			t.Errorf("expected empty string, got %q", result)
+		}
+	})
+
+	t.Run("single required parameter", func(t *testing.T) {
+		params := []ToolParameter{
+			{Name: "command", Type: "string", Required: true, Description: "The command to run."},
+		}
+		result := FormatToolParameters(params)
+		if !strings.Contains(result, "Parameters:") {
+			t.Error("expected 'Parameters:' header")
+		}
+		if !strings.Contains(result, "command (string, required): The command to run.") {
+			t.Errorf("expected formatted parameter, got %q", result)
+		}
+	})
+
+	t.Run("mixed required and optional", func(t *testing.T) {
+		params := []ToolParameter{
+			{Name: "path", Type: "string", Required: true, Description: "File path."},
+			{Name: "max", Type: "int", Required: false, Description: "Max lines."},
+		}
+		result := FormatToolParameters(params)
+		if !strings.Contains(result, "path (string, required): File path.") {
+			t.Error("expected required parameter")
+		}
+		if !strings.Contains(result, "max (int, optional): Max lines.") {
+			t.Error("expected optional parameter")
+		}
+	})
+}
+
 func TestBuildFeedbackPrompt(t *testing.T) {
 	a := &Agent{
 		strings: EnglishStrings(),
