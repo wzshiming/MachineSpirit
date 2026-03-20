@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
 )
 
 // WriteTool allows the agent to write files.
@@ -21,8 +23,15 @@ func (t *WriteTool) Name() string {
 }
 
 func (t *WriteTool) Description() string {
-	return "Write content to a file. {\"path\": \"/path/to/file\", \"content\": \"new content\", \"append\": false}." +
-		" append: set to true to append instead of overwrite."
+	return "Write content to a file. Creates the file if it does not exist."
+}
+
+func (t *WriteTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "path", Type: "string", Required: true, Description: "Absolute path to the file to write."},
+		{Name: "content", Type: "string", Required: true, Description: "The content to write to the file."},
+		{Name: "append", Type: "bool", Required: false, Description: "If true, append to the file instead of overwriting. Default is false."},
+	}
 }
 
 func (t *WriteTool) Enabled() bool {

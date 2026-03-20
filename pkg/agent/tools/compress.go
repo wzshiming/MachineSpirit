@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
@@ -26,7 +27,14 @@ func (t *CompressTool) Name() string {
 
 func (t *CompressTool) Description() string {
 	currentSize := t.session.Size()
-	return fmt.Sprintf(`Compress the conversation transcript by summarizing older messages into a concise summary. Current transcript size: %d messages. {"keep_recent": 10, "system_prompt": "Summarize the following conversation concisely, preserving key information, decisions, and context that would be needed to continue the conversation. Output only the summary."} - Keep the 10 most recent messages, compress the rest`, currentSize)
+	return fmt.Sprintf("Compress the conversation transcript by summarizing older messages into a concise summary. Current transcript size: %d messages.", currentSize)
+}
+
+func (t *CompressTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "keep_recent", Type: "int", Required: true, Description: "Number of recent messages to keep uncompressed. Must be greater than 2."},
+		{Name: "system_prompt", Type: "string", Required: true, Description: "The prompt used to instruct the LLM how to summarize the compressed messages."},
+	}
 }
 
 func (t *CompressTool) Enabled() bool {

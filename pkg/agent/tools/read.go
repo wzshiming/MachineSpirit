@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
 )
 
 // ReadTool allows the agent to read files.
@@ -23,8 +25,15 @@ func (t *ReadTool) Name() string {
 }
 
 func (t *ReadTool) Description() string {
-	return "Read the current content of a file. {\"path\": \"/path/to/file\", \"max\": 100, \"start\": 1}." +
-		" max: limit number of lines, start: line number to start from (1-based)."
+	return "Read the content of a file, optionally limiting to a range of lines."
+}
+
+func (t *ReadTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "path", Type: "string", Required: true, Description: "Absolute path to the file to read."},
+		{Name: "max", Type: "int", Required: false, Description: "Maximum number of lines to read. 0 means all lines."},
+		{Name: "start", Type: "int", Required: false, Description: "Line number to start reading from (1-based). Omit or set to 0 to read from the beginning."},
+	}
 }
 
 func (t *ReadTool) Enabled() bool {

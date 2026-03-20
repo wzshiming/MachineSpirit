@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"time"
+
+	"github.com/wzshiming/MachineSpirit/pkg/agent"
 )
 
 // BashTool executes shell commands.
@@ -22,7 +24,14 @@ func (t *BashTool) Name() string {
 }
 
 func (t *BashTool) Description() string {
-	return `Execute a shell command. {"command": "cd /tmp && ls", "timeoutSecond": 30}`
+	return "Execute a shell command and return its stdout, stderr, and exit code."
+}
+
+func (t *BashTool) Parameters() []agent.ToolParameter {
+	return []agent.ToolParameter{
+		{Name: "command", Type: "string", Required: true, Description: "The shell command to execute."},
+		{Name: "timeoutSecond", Type: "int", Required: false, Description: "Timeout in seconds. 0 means no timeout."},
+	}
 }
 
 func (t *BashTool) Enabled() bool {
