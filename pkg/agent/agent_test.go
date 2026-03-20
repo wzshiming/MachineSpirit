@@ -97,3 +97,47 @@ func TestAgentAddInputConcurrent(t *testing.T) {
 		t.Errorf("expected %d messages, got %d", count, len(msgs))
 	}
 }
+
+func TestAgentInputNotify(t *testing.T) {
+	ag := newTestAgent(t)
+	ch := ag.InputNotify()
+
+	// No notification initially
+	select {
+	case <-ch:
+		t.Fatal("unexpected notification before AddInput")
+	default:
+	}
+
+	// AddInput should trigger a notification
+	ag.AddInput(llm.Message{Role: llm.RoleUser, Content: "hello"})
+
+	select {
+	case <-ch:
+		// expected
+	case <-time.After(time.Second):
+		t.Fatal("expected notification after AddInput")
+	}
+
+	// Drain the queue
+	msgs := ag.DrainInputs()
+	if len(msgs) != 1 || msgs[0].Content != "hello" {
+		t.Errorf("unexpected messages: %v", msgs)
+	}
+
+	// Multiple rapid AddInputs should coalesce into at least one notification
+	ag.AddInput(llm.Message{Role: llm.RoleUser, Content: "a"})
+	ag.AddInput(llm.Message{Role: llm.RoleUser, Content: "b"})
+
+	select {
+	case <-ch:
+		// expected
+	case <-time.After(time.Second):
+		t.Fatal("expected notification after rapid AddInputs")
+	}
+
+	msgs = ag.DrainInputs()
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(msgs))
+	}
+}

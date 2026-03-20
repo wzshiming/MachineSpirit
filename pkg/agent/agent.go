@@ -48,6 +48,7 @@ type Agent struct {
 	compressThreshold int
 	strings           AgentStrings
 	inputQueue        chan llm.Message
+	inputNotify       chan struct{}
 }
 
 type opt func(*Agent)
@@ -104,6 +105,7 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 		maxRetries:        3,
 		compressThreshold: defaultCompressThreshold,
 		inputQueue:        make(chan llm.Message, defaultInputQueueSize),
+		inputNotify:       make(chan struct{}, 1),
 	}
 
 	for _, o := range opts {
@@ -231,6 +233,13 @@ func (a *Agent) AddInput(msg llm.Message) {
 	case a.inputQueue <- msg:
 	default:
 		slog.Warn("Agent input queue is full, dropping message", "role", msg.Role)
+		return
+	}
+	// Signal that a new message is available.
+	select {
+	case a.inputNotify <- struct{}{}:
+	default:
+		// Already signalled; the consumer will drain all pending messages.
 	}
 }
 
@@ -251,6 +260,14 @@ func (a *Agent) DrainInputs() []llm.Message {
 // HasPendingInputs reports whether there are messages waiting in the input queue.
 func (a *Agent) HasPendingInputs() bool {
 	return len(a.inputQueue) > 0
+}
+
+// InputNotify returns a channel that receives a value each time AddInput
+// enqueues a new message. Consumers should drain all pending messages via
+// DrainInputs after each receive, as the channel is buffered with size 1
+// and multiple AddInput calls may coalesce into a single notification.
+func (a *Agent) InputNotify() <-chan struct{} {
+	return a.inputNotify
 }
 
 // toolCall represents a request to invoke a specific tool.

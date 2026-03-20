@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/Xuanwo/go-locale"
 	"github.com/c-bata/go-prompt"
@@ -180,6 +181,20 @@ func main() {
 		slog.Warn("Failed to load input history", "error", err)
 	}
 
+	// mu serialises agent execution between the prompt handler and the
+	// background goroutine that processes sub-session results.
+	var mu sync.Mutex
+
+	// Background goroutine: process sub-session results as they arrive,
+	// without waiting for user input.
+	go func() {
+		for range ag.InputNotify() {
+			mu.Lock()
+			processQueuedInputs(ctx, ag)
+			mu.Unlock()
+		}
+	}()
+
 	p := prompt.New(
 		func(text string) {
 			text = strings.TrimSpace(text)
@@ -266,13 +281,13 @@ func main() {
 				}
 			}
 
+			mu.Lock()
+			defer mu.Unlock()
 			err := ag.Execute(ctx, text, os.Stdout)
 			if err != nil {
 				slog.Error("Agent execution error", "error", err)
-				return
 			}
-
-			// Process any pending sub-session results
+			// Also drain any results that arrived during this Execute call.
 			processQueuedInputs(ctx, ag)
 		},
 		func(in prompt.Document) []prompt.Suggest {
