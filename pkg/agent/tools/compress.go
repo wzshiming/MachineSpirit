@@ -9,17 +9,10 @@ import (
 	"github.com/wzshiming/MachineSpirit/pkg/session"
 )
 
-// DefaultCompressSystemPrompt is the default prompt used to instruct the LLM
-// how to summarize older conversation messages during transcript compression.
-const DefaultCompressSystemPrompt = `You are summarizing a conversation transcript. Create a concise summary that preserves:
-- Key decisions and their reasoning
-- Important facts, state, and context established
-- Task progress and outcomes
-- Any pending or incomplete items
-Write the summary as a brief narrative that can serve as context for continuing the conversation.`
-
 const (
-	minRecentMessages      = 2
+	// minAllowedKeepRecent is the minimum allowed value for the keep_recent
+	// parameter, ensuring at least one user-assistant exchange is preserved.
+	minAllowedKeepRecent   = 2
 	defaultKeepRecent      = 10
 	compressToolThreshold  = 10
 )
@@ -47,7 +40,7 @@ func (t *CompressTool) Description() string {
 
 func (t *CompressTool) Parameters() []agent.ToolParameter {
 	return []agent.ToolParameter{
-		{Name: "keep_recent", Type: "int", Required: false, Description: fmt.Sprintf("Number of recent messages to keep uncompressed. Defaults to %d. Must be greater than %d if provided.", defaultKeepRecent, minRecentMessages)},
+		{Name: "keep_recent", Type: "int", Required: false, Description: fmt.Sprintf("Number of recent messages to keep uncompressed. Defaults to %d. Must be greater than %d if provided.", defaultKeepRecent, minAllowedKeepRecent)},
 		{Name: "system_prompt", Type: "string", Required: false, Description: "The prompt used to instruct the LLM how to summarize the compressed messages. A sensible default is used if omitted."},
 	}
 }
@@ -70,12 +63,12 @@ func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json
 	if params.KeepRecent == 0 {
 		params.KeepRecent = defaultKeepRecent
 	}
-	if params.KeepRecent <= minRecentMessages {
-		return nil, fmt.Errorf("keep_recent must be greater than %d", minRecentMessages)
+	if params.KeepRecent <= minAllowedKeepRecent {
+		return nil, fmt.Errorf("keep_recent must be greater than %d", minAllowedKeepRecent)
 	}
 
 	if params.SystemPrompt == "" {
-		params.SystemPrompt = DefaultCompressSystemPrompt
+		params.SystemPrompt = agent.DefaultCompressSystemPrompt
 	}
 
 	beforeCount := t.session.Size()

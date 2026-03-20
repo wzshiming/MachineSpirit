@@ -22,8 +22,9 @@ const defaultCompressThreshold = 50
 // when auto-compression triggers.
 const defaultAutoCompressKeepRecent = 10
 
-// defaultCompressSystemPrompt is the default prompt used when auto-compressing.
-const defaultCompressSystemPrompt = `You are summarizing a conversation transcript. Create a concise summary that preserves:
+// DefaultCompressSystemPrompt is the default prompt used to instruct the LLM
+// how to summarize older conversation messages during transcript compression.
+const DefaultCompressSystemPrompt = `You are summarizing a conversation transcript. Create a concise summary that preserves:
 - Key decisions and their reasoning
 - Important facts, state, and context established
 - Task progress and outcomes
@@ -200,7 +201,7 @@ func (a *Agent) maybeAutoCompress(ctx context.Context) {
 		"threshold", a.compressThreshold,
 	)
 
-	_, err := a.session.CompressTranscript(ctx, defaultAutoCompressKeepRecent, defaultCompressSystemPrompt)
+	_, err := a.session.CompressTranscript(ctx, defaultAutoCompressKeepRecent, DefaultCompressSystemPrompt)
 	if err != nil {
 		slog.Warn("Auto-compression failed", "error", err)
 	}
