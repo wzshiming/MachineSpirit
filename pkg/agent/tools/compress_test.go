@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -114,14 +113,7 @@ func TestCompressToolBackgroundCompletion(t *testing.T) {
 
 	beforeSize := sess.Size()
 
-	var mu sync.Mutex
-	var msgs []llm.Message
-	addInput := func(msg llm.Message) {
-		mu.Lock()
-		defer mu.Unlock()
-		msgs = append(msgs, msg)
-	}
-
+	addInput, getInputs := collectingAddInput()
 	tool := NewCompressTool(sess, provider, addInput)
 
 	input, _ := json.Marshal(map[string]any{"keep_recent": 4})
@@ -133,18 +125,14 @@ func TestCompressToolBackgroundCompletion(t *testing.T) {
 	// Wait for the background goroutine to complete
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		mu.Lock()
-		count := len(msgs)
-		mu.Unlock()
-		if count > 0 {
+		if len(getInputs()) > 0 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Verify addInput was called with completion message
-	mu.Lock()
-	defer mu.Unlock()
+	msgs := getInputs()
 	if len(msgs) == 0 {
 		t.Fatal("expected addInput to be called after compression")
 	}

@@ -162,6 +162,9 @@ func (s *Session) ApplyCompression(summary string, keepRecent int, originalSize 
 	if originalSize > len(s.transcript) {
 		return "", fmt.Errorf("transcript has changed since compression started (was %d, now %d)", originalSize, len(s.transcript))
 	}
+	if keepRecent > originalSize {
+		return "", fmt.Errorf("keepRecent (%d) exceeds originalSize (%d)", keepRecent, originalSize)
+	}
 
 	recentFromOriginal := s.transcript[originalSize-keepRecent : originalSize]
 	newMessages := s.transcript[originalSize:]
