@@ -147,7 +147,7 @@ func (t *SubSessionTool) runSubSession(name, task string) {
 	ctx := context.Background()
 
 	// Create a dedicated session for the sub-agent.
-	saveFile := fmt.Sprintf("sub-%s", name)
+	saveFile := fmt.Sprintf("sub-session-%s-%s.ndjson", name, time.Now().UTC().Format("060102150405"))
 	sess := session.NewSession(t.llmProvider,
 		session.WithBaseDir(t.pm.GetBaseDir()),
 		session.WithSave(saveFile),
