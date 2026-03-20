@@ -474,6 +474,7 @@ func (a *Agent) BuildSystemPrompt() string {
 
 	var sb strings.Builder
 	sb.WriteString(strings.Join(parts, "\n\n"))
+	sb.WriteString("\n\n")
 
 	// List available skills (higher-level capabilities)
 	if list := a.skills.List(); len(list) != 0 {
