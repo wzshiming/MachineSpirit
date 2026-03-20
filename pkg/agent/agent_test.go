@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
 	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
@@ -402,5 +403,80 @@ func TestWithCompressThresholdCustom(t *testing.T) {
 
 	if ag.compressThreshold != 100 {
 		t.Errorf("expected compress threshold 100, got %d", ag.compressThreshold)
+	}
+}
+
+// mockTool is a minimal Tool implementation for testing system prompt building.
+type mockTool struct {
+	name    string
+	desc    string
+	enabled bool
+}
+
+func (m *mockTool) Name() string                                                          { return m.name }
+func (m *mockTool) Description() string                                                   { return m.desc }
+func (m *mockTool) Parameters() []ToolParameter                                           { return nil }
+func (m *mockTool) Enabled() bool                                                         { return m.enabled }
+func (m *mockTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func TestBuildSystemPromptSubSessionHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm, err := persistence.NewPersistenceManager(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create persistence manager: %v", err)
+	}
+
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	subSessionTool := &mockTool{name: "sub_session", desc: "Run background tasks", enabled: true}
+	bashTool := &mockTool{name: "bash", desc: "Run commands", enabled: true}
+
+	ag, err := NewAgent(sess,
+		WithPersistenceManager(pm),
+		WithTools(subSessionTool, bashTool),
+		WithSkills(skills.NewSkills()),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	prompt := ag.buildSystemPrompt()
+
+	hint := EnglishStrings().SubSessionHint
+	if !strings.Contains(prompt, hint) {
+		t.Errorf("expected sub-session hint in system prompt when sub_session tool is present")
+	}
+}
+
+func TestBuildSystemPromptNoSubSessionHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm, err := persistence.NewPersistenceManager(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create persistence manager: %v", err)
+	}
+
+	provider := &stubLLM{}
+	sess := session.NewSession(provider)
+
+	// Only bash tool, no sub_session
+	bashTool := &mockTool{name: "bash", desc: "Run commands", enabled: true}
+
+	ag, err := NewAgent(sess,
+		WithPersistenceManager(pm),
+		WithTools(bashTool),
+		WithSkills(skills.NewSkills()),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create agent: %v", err)
+	}
+
+	prompt := ag.buildSystemPrompt()
+
+	hint := EnglishStrings().SubSessionHint
+	if strings.Contains(prompt, hint) {
+		t.Errorf("sub-session hint should NOT appear when sub_session tool is absent")
 	}
 }

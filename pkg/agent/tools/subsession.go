@@ -63,7 +63,9 @@ func (t *SubSessionTool) Name() string {
 }
 
 func (t *SubSessionTool) Description() string {
-	return `Manage sub-sessions that run tasks in the background.`
+	return `Delegate a task to an independent sub-session that runs in the background.
+Use this tool when you need to run independent tasks in parallel, handle long-running operations without blocking the conversation, or break a complex request into sub-tasks that can be worked on concurrently.
+Results are automatically reported back when each sub-session completes.`
 }
 
 func (t *SubSessionTool) Parameters() []agent.ToolParameter {
