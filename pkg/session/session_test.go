@@ -322,7 +322,7 @@ func TestAutoSaveWithCompression(t *testing.T) {
 	originalTranscript := session.Transcript()
 
 	// Compress the transcript
-	err = session.CompressTranscript(ctx, 4, "Summarize the following conversation:")
+	_, err = session.CompressTranscript(ctx, 4, "Summarize the following conversation:")
 	if err != nil {
 		t.Fatalf("CompressTranscript returned error: %v", err)
 	}

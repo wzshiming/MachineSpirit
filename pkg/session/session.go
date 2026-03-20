@@ -116,10 +116,10 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 }
 
 // CompressTranscript reduces transcript size by summarizing older messages.
-func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, systemPrompt string) error {
+func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, systemPrompt string) (string, error) {
 	currentCount := len(s.transcript)
 	if currentCount <= minRecentMessages {
-		return fmt.Errorf("transcript too short to compress (minimum %d messages needed)", minRecentMessages)
+		return "", fmt.Errorf("transcript too short to compress (minimum %d messages needed)", minRecentMessages)
 	}
 
 	// Determine how many recent messages to keep
@@ -127,7 +127,7 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 	if keepRecent > 0 {
 		keep = max(keepRecent, minRecentMessages)
 		if keep >= currentCount {
-			return fmt.Errorf("keep_recent (%d) must be less than current transcript size (%d)", keep, currentCount)
+			return "", fmt.Errorf("keep_recent (%d) must be less than current transcript size (%d)", keep, currentCount)
 		}
 	} else {
 		// Default: keep half of current messages, minimum of 2
@@ -154,16 +154,16 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("compression failed: %w", err)
+		return "", fmt.Errorf("compression failed: %w", err)
 	}
 
 	// Persist the full history before archiving it
 	if err := s.Save(s.saveFile); err != nil {
-		return fmt.Errorf("failed to save session before compression: %w", err)
+		return "", fmt.Errorf("failed to save session before compression: %w", err)
 	}
 	archivePath, err := s.archiveSessionFile(s.saveFile)
 	if err != nil {
-		return fmt.Errorf("failed to archive session history: %w", err)
+		return "", fmt.Errorf("failed to archive session history: %w", err)
 	}
 
 	newTranscript := append([]llm.Message{
@@ -182,7 +182,7 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		slog.Error("Failed to auto-save session after compression", "error", err)
 	}
 
-	return nil
+	return archivePath, nil
 }
 
 // Size returns the number of messages in the current transcript.

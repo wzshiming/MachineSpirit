@@ -56,7 +56,7 @@ func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json
 	beforeCount := t.session.Size()
 
 	// Perform compression with specified keep_recent value
-	err := t.session.CompressTranscript(ctx, params.KeepRecent, params.SystemPrompt)
+	archivePath, err := t.session.CompressTranscript(ctx, params.KeepRecent, params.SystemPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("compression failed: %w", err)
 	}
@@ -68,6 +68,7 @@ func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json
 		"messages_before":     beforeCount,
 		"messages_after":      afterCount,
 		"messages_compressed": beforeCount - afterCount,
+		"archive_path":        archivePath,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
