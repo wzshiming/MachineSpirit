@@ -265,7 +265,7 @@ func TestAutoSaveSession(t *testing.T) {
 	provider := &stubLLM{}
 	session := NewSession(provider,
 		WithPersistenceManager(pm),
-		WithAutoSave("auto-test"),
+		WithSave("auto-test"),
 	)
 
 	// Complete a conversation - should auto-save
@@ -305,7 +305,7 @@ func TestAutoSaveWithCompression(t *testing.T) {
 	provider := &stubLLM{}
 	session := NewSession(provider,
 		WithPersistenceManager(pm),
-		WithAutoSave("compress-test"),
+		WithSave("compress-test"),
 	)
 
 	// Add several messages

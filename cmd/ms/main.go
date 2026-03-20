@@ -106,7 +106,7 @@ func main() {
 
 	session := session.NewSession(llm,
 		session.WithPersistenceManager(pm),
-		session.WithAutoSave("current"),
+		session.WithSave("current"),
 	)
 
 	// Attempt to load the previous session if it exists

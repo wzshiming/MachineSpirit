@@ -22,12 +22,11 @@ const minRecentMessages = 2
 
 // Session tracks conversation state across multiple LLM completions.
 type Session struct {
-	llm          llm.LLM
-	transcript   []llm.Message
-	pm           *persistence.PersistenceManager
-	autoSave     bool
-	autoSaveFile string
-	savedCount   int // Number of messages already persisted to disk
+	llm        llm.LLM
+	transcript []llm.Message
+	pm         *persistence.PersistenceManager
+	saveFile   string
+	savedCount int // Number of messages already persisted to disk
 }
 
 type opt func(*Session)
@@ -46,12 +45,11 @@ func WithPersistenceManager(pm *persistence.PersistenceManager) opt {
 	}
 }
 
-// WithAutoSave enables automatic session persistence after each interaction.
+// WithSave enables automatic session persistence after each interaction.
 // The session will be saved to the specified filename in the session directory.
-func WithAutoSave(filename string) opt {
+func WithSave(filename string) opt {
 	return func(s *Session) {
-		s.autoSave = true
-		s.autoSaveFile = filename
+		s.saveFile = filename
 	}
 }
 
@@ -62,6 +60,10 @@ func NewSession(l llm.LLM, opts ...opt) *Session {
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	if s.saveFile == "" {
+		s.saveFile = fmt.Sprintf("unnamed-session-%s.ndjson", time.Now().UTC().Format("060102150405"))
 	}
 	return s
 }
@@ -88,6 +90,13 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 	if prompt.Timestamp.IsZero() {
 		prompt.Timestamp = time.Now()
 	}
+
+	s.transcript = append(s.transcript, prompt)
+
+	if err := s.Save(s.saveFile); err != nil {
+		slog.Error("Failed to auto-save session", "error", err)
+	}
+
 	resp, err := s.llm.Complete(ctx, llm.ChatRequest{
 		SystemPrompt: systemPrompt,
 		Transcript:   history,
@@ -97,13 +106,10 @@ func (s *Session) Complete(ctx context.Context, req llm.ChatRequest) (llm.Messag
 		return llm.Message{}, err
 	}
 
-	s.transcript = append(s.transcript, prompt, resp)
+	s.transcript = append(s.transcript, resp)
 
-	// Auto-save session if enabled
-	if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
-		if err := s.Save(s.autoSaveFile); err != nil {
-			slog.Error("Failed to auto-save session", "error", err)
-		}
+	if err := s.Save(s.saveFile); err != nil {
+		slog.Error("Failed to auto-save session", "error", err)
 	}
 
 	return resp, nil
@@ -151,19 +157,17 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 		return fmt.Errorf("compression failed: %w", err)
 	}
 
-	shouldArchive := s.autoSave && s.pm != nil && s.autoSaveFile != ""
-	if shouldArchive {
-		// Persist the full history before archiving it
-		if err := s.Save(s.autoSaveFile); err != nil {
-			return fmt.Errorf("failed to save session before compression: %w", err)
-		}
-		if _, err := s.archiveSessionFile(s.autoSaveFile); err != nil {
-			return fmt.Errorf("failed to archive session history: %w", err)
-		}
+	// Persist the full history before archiving it
+	if err := s.Save(s.saveFile); err != nil {
+		return fmt.Errorf("failed to save session before compression: %w", err)
+	}
+	archivePath, err := s.archiveSessionFile(s.saveFile)
+	if err != nil {
+		return fmt.Errorf("failed to archive session history: %w", err)
 	}
 
 	newTranscript := append([]llm.Message{
-		llm.Message{
+		{
 			Role:      llm.RoleAssistant,
 			Content:   summaryResp.Content,
 			Timestamp: time.Now(),
@@ -174,15 +178,8 @@ func (s *Session) CompressTranscript(ctx context.Context, keepRecent int, system
 
 	s.savedCount = 0
 
-	// Auto-save session after compression if enabled
-	if shouldArchive {
-		if err := s.Save(s.autoSaveFile); err != nil {
-			slog.Error("Failed to auto-save session after compression", "error", err)
-		}
-	} else if s.autoSave && s.pm != nil && s.autoSaveFile != "" {
-		if err := s.Save(s.autoSaveFile); err != nil {
-			slog.Error("Failed to auto-save session after compression", "error", err)
-		}
+	if err := s.Save(s.saveFile); err != nil {
+		slog.Error("Failed to auto-save session after compression", "error", err)
 	}
 
 	return nil
