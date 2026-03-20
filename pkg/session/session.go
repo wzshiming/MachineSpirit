@@ -201,8 +201,18 @@ func (s *Session) Transcript() []llm.Message {
 }
 
 // Reset clears the conversation history, keeping the initial seed transcript.
+// It also drains any pending messages from the input queue to ensure a clean state.
 func (s *Session) Reset() {
 	s.transcript = []llm.Message(nil)
+	// Drain the input queue so leftover messages from sub-sessions
+	// cannot leak into the next conversation.
+	for {
+		select {
+		case <-s.inputQueue:
+		default:
+			return
+		}
+	}
 }
 
 // AddInput enqueues a message into the session's input queue.

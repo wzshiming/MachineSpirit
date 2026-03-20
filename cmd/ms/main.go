@@ -297,15 +297,25 @@ func isTty() bool {
 
 // processQueuedInputs drains all pending messages from the session's input
 // queue (e.g. results from completed sub-sessions) and feeds each one to the
-// agent for processing.
+// agent for processing.  It loops up to maxDrainRounds times to pick up
+// results from sub-sessions that may complete while earlier results are being
+// processed, preventing unbounded recursion.
 func processQueuedInputs(ctx context.Context, ag *agent.Agent, sess *session.Session) {
-	for _, msg := range sess.DrainInputs() {
-		fmt.Printf("\n[Queued input]: %s\n", msg.Content)
-		response, err := ag.Execute(ctx, msg.Content)
-		if err != nil {
-			slog.Error("Failed to process queued input", "error", err)
-			continue
+	const maxDrainRounds = 3
+	for round := range maxDrainRounds {
+		msgs := sess.DrainInputs()
+		if len(msgs) == 0 {
+			break
 		}
-		fmt.Println(response)
+		_ = round
+		for _, msg := range msgs {
+			fmt.Printf("\n[Queued input]: %s\n", msg.Content)
+			response, err := ag.Execute(ctx, msg.Content)
+			if err != nil {
+				slog.Error("Failed to process queued input", "error", err)
+				continue
+			}
+			fmt.Println(response)
+		}
 	}
 }
