@@ -385,7 +385,7 @@ func (a *Agent) buildSystemPrompt() string {
 			}
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
 			sb.WriteString(FormatToolParameters(tool.Parameters()))
-			if tool.Name() == "sub_session" {
+			if !hasSubSession && tool.Name() == "sub_session" {
 				hasSubSession = true
 			}
 		}
