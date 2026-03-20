@@ -32,9 +32,6 @@ const RoleSystem = llm.RoleSystem
 // remains in full for context continuity.
 const minRecentMessages = 2
 
-// defaultInputQueueSize is the default buffer size for the input queue.
-const defaultInputQueueSize = 64
-
 // Session tracks conversation state across multiple LLM completions.
 type Session struct {
 	llm        llm.LLM
@@ -42,7 +39,6 @@ type Session struct {
 	transcript []llm.Message
 	saveFile   string
 	savedCount int // Number of messages already persisted to disk
-	inputQueue chan llm.Message
 }
 
 type opt func(*Session)
@@ -72,8 +68,7 @@ func WithBaseDir(dir string) opt {
 // NewSession creates a new Session bound to the provided LLM.
 func NewSession(l llm.LLM, opts ...opt) *Session {
 	s := &Session{
-		llm:        l,
-		inputQueue: make(chan llm.Message, defaultInputQueueSize),
+		llm: l,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -214,49 +209,8 @@ func (s *Session) Transcript() []llm.Message {
 }
 
 // Reset clears the conversation history, keeping the initial seed transcript.
-// It also drains any pending messages from the input queue to ensure a clean state.
 func (s *Session) Reset() {
 	s.transcript = []llm.Message(nil)
-	// Drain the input queue so leftover messages from sub-sessions
-	// cannot leak into the next conversation.
-	for {
-		select {
-		case <-s.inputQueue:
-		default:
-			return
-		}
-	}
-}
-
-// AddInput enqueues a message into the session's input queue.
-// This allows external sources (such as sub-sessions) to inject messages
-// while the session is actively processing another request.
-// It is safe to call from any goroutine.
-func (s *Session) AddInput(msg llm.Message) {
-	select {
-	case s.inputQueue <- msg:
-	default:
-		slog.Warn("Session input queue is full, dropping message", "role", msg.Role)
-	}
-}
-
-// DrainInputs returns all currently pending messages from the input queue
-// without blocking. Returns nil if no messages are pending.
-func (s *Session) DrainInputs() []llm.Message {
-	var msgs []llm.Message
-	for {
-		select {
-		case msg := <-s.inputQueue:
-			msgs = append(msgs, msg)
-		default:
-			return msgs
-		}
-	}
-}
-
-// HasPendingInputs reports whether there are messages waiting in the input queue.
-func (s *Session) HasPendingInputs() bool {
-	return len(s.inputQueue) > 0
 }
 
 func sanitizeSessionFilename(filename string) (string, error) {

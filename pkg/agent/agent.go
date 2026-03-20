@@ -12,6 +12,7 @@ import (
 
 	jsonrepair "github.com/RealAlexandreAI/json-repair"
 	"github.com/wzshiming/MachineSpirit/pkg/agent/skills"
+	"github.com/wzshiming/MachineSpirit/pkg/llm"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence"
 	"github.com/wzshiming/MachineSpirit/pkg/persistence/i18n"
 	"github.com/wzshiming/MachineSpirit/pkg/session"
@@ -24,6 +25,9 @@ const defaultCompressThreshold = 200
 // defaultAutoCompressKeepRecent is the number of recent messages to keep
 // when auto-compression triggers.
 const defaultAutoCompressKeepRecent = 50
+
+// defaultInputQueueSize is the default buffer size for the input queue.
+const defaultInputQueueSize = 64
 
 // DefaultCompressSystemPrompt is the default prompt used to instruct the LLM
 // how to summarize older conversation messages during transcript compression.
@@ -43,6 +47,7 @@ type Agent struct {
 	maxRetries        int
 	compressThreshold int
 	strings           AgentStrings
+	inputQueue        chan llm.Message
 }
 
 type opt func(*Agent)
@@ -98,6 +103,7 @@ func NewAgent(session *session.Session, opts ...opt) (*Agent, error) {
 		tools:             make(map[string]Tool),
 		maxRetries:        3,
 		compressThreshold: defaultCompressThreshold,
+		inputQueue:        make(chan llm.Message, defaultInputQueueSize),
 	}
 
 	for _, o := range opts {
@@ -214,6 +220,37 @@ func (a *Agent) maybeAutoCompress(ctx context.Context) {
 	if err != nil {
 		slog.Warn("Auto-compression failed", "error", err)
 	}
+}
+
+// AddInput enqueues a message into the agent's input queue.
+// This allows external sources (such as sub-sessions) to inject messages
+// while the agent is actively processing another request.
+// It is safe to call from any goroutine.
+func (a *Agent) AddInput(msg llm.Message) {
+	select {
+	case a.inputQueue <- msg:
+	default:
+		slog.Warn("Agent input queue is full, dropping message", "role", msg.Role)
+	}
+}
+
+// DrainInputs returns all currently pending messages from the input queue
+// without blocking. Returns nil if no messages are pending.
+func (a *Agent) DrainInputs() []llm.Message {
+	var msgs []llm.Message
+	for {
+		select {
+		case msg := <-a.inputQueue:
+			msgs = append(msgs, msg)
+		default:
+			return msgs
+		}
+	}
+}
+
+// HasPendingInputs reports whether there are messages waiting in the input queue.
+func (a *Agent) HasPendingInputs() bool {
+	return len(a.inputQueue) > 0
 }
 
 // toolCall represents a request to invoke a specific tool.
