@@ -43,6 +43,7 @@ type Session struct {
 	saveFile   string
 	savedCount int // Number of messages already persisted to disk
 	inputQueue chan llm.Message
+	notifyCh   chan struct{} // signals when a new input is enqueued
 }
 
 type opt func(*Session)
@@ -74,6 +75,7 @@ func NewSession(l llm.LLM, opts ...opt) *Session {
 	s := &Session{
 		llm:        l,
 		inputQueue: make(chan llm.Message, defaultInputQueueSize),
+		notifyCh:   make(chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -235,6 +237,11 @@ func (s *Session) Reset() {
 func (s *Session) AddInput(msg llm.Message) {
 	select {
 	case s.inputQueue <- msg:
+		// Signal that a new input is available.
+		select {
+		case s.notifyCh <- struct{}{}:
+		default:
+		}
 	default:
 		slog.Warn("Session input queue is full, dropping message", "role", msg.Role)
 	}
@@ -257,6 +264,13 @@ func (s *Session) DrainInputs() []llm.Message {
 // HasPendingInputs reports whether there are messages waiting in the input queue.
 func (s *Session) HasPendingInputs() bool {
 	return len(s.inputQueue) > 0
+}
+
+// InputNotify returns a channel that receives a value each time AddInput
+// successfully enqueues a message. Consumers can select on this channel to
+// react to asynchronous inputs (e.g. sub-session results) without polling.
+func (s *Session) InputNotify() <-chan struct{} {
+	return s.notifyCh
 }
 
 func sanitizeSessionFilename(filename string) (string, error) {
