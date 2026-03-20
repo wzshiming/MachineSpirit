@@ -139,11 +139,7 @@ func main() {
 		return baseTools
 	})
 
-	compressTool := tools.NewCompressTool(session, llm, func(msg llmpkg.Message) {
-		if ag != nil {
-			ag.AddInput(msg)
-		}
-	})
+	compressTool := tools.NewCompressTool(session, llm)
 
 	toolsList := append(baseTools,
 		compressTool,

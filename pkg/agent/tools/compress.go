@@ -15,9 +15,9 @@ import (
 const (
 	// minAllowedKeepRecent is the minimum allowed value for the keep_recent
 	// parameter, ensuring at least one user-assistant exchange is preserved.
-	minAllowedKeepRecent   = 2
-	defaultKeepRecent      = 10
-	compressToolThreshold  = 10
+	minAllowedKeepRecent  = 2
+	defaultKeepRecent     = 10
+	compressToolThreshold = 10
 )
 
 // CompressTool allows the agent to compress the conversation transcript.
@@ -27,18 +27,16 @@ const (
 type CompressTool struct {
 	session     *session.Session
 	llmProvider llm.LLM
-	addInput    func(llm.Message)
 }
 
 // NewCompressTool creates a new Compress tool.
 // llmProvider is used to create the sub-session for summarization.
 // addInput is a callback that enqueues a message into the parent agent's
 // input queue when compression completes.
-func NewCompressTool(sess *session.Session, llmProvider llm.LLM, addInput func(llm.Message)) *CompressTool {
+func NewCompressTool(sess *session.Session, llmProvider llm.LLM) *CompressTool {
 	return &CompressTool{
 		session:     sess,
 		llmProvider: llmProvider,
-		addInput:    addInput,
 	}
 }
 
@@ -59,7 +57,7 @@ func (t *CompressTool) Parameters() []agent.ToolParameter {
 }
 
 func (t *CompressTool) Enabled() bool {
-	return t.session != nil && t.llmProvider != nil && t.addInput != nil && t.session.Size() > compressToolThreshold
+	return t.session != nil && t.llmProvider != nil && t.session.Size() > compressToolThreshold
 }
 
 func (t *CompressTool) Execute(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
@@ -127,11 +125,6 @@ func (t *CompressTool) runCompression(text string, keepRecent, originalSize int,
 	})
 	if err != nil {
 		slog.Warn("Compression sub-session failed", "error", err)
-		t.addInput(llm.Message{
-			Role:      llm.RoleUser,
-			Content:   fmt.Sprintf("[Compression failed]: %v", err),
-			Timestamp: time.Now(),
-		})
 		return
 	}
 
@@ -139,11 +132,6 @@ func (t *CompressTool) runCompression(text string, keepRecent, originalSize int,
 	archivePath, err := t.session.ApplyCompression(summaryResp.Content, keepRecent, originalSize)
 	if err != nil {
 		slog.Warn("Failed to apply compression", "error", err)
-		t.addInput(llm.Message{
-			Role:      llm.RoleUser,
-			Content:   fmt.Sprintf("[Compression failed]: %v", err),
-			Timestamp: time.Now(),
-		})
 		return
 	}
 
@@ -153,10 +141,4 @@ func (t *CompressTool) runCompression(text string, keepRecent, originalSize int,
 		"after", afterCount,
 		"archive", archivePath,
 	)
-
-	t.addInput(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   fmt.Sprintf("[Compression completed]: %d messages compressed to %d. Archive: %s", originalSize, afterCount, archivePath),
-		Timestamp: time.Now(),
-	})
 }

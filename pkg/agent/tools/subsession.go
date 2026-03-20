@@ -24,7 +24,7 @@ type subSessionInfo struct {
 	Result    string    `json:"result,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time,omitempty"`
+	EndTime   time.Time `json:"end_time"`
 }
 
 // SubSessionTool allows the agent to spawn sub-sessions that run tasks
@@ -95,7 +95,7 @@ func (t *SubSessionTool) Execute(ctx context.Context, input json.RawMessage) (js
 
 	switch params.Action {
 	case "start":
-		return t.startSubSession(ctx, params.Name, params.Task)
+		return t.startSubSession(params.Name, params.Task)
 	case "list":
 		return t.listSubSessions()
 	default:
@@ -103,7 +103,7 @@ func (t *SubSessionTool) Execute(ctx context.Context, input json.RawMessage) (js
 	}
 }
 
-func (t *SubSessionTool) startSubSession(ctx context.Context, name, task string) (json.RawMessage, error) {
+func (t *SubSessionTool) startSubSession(name, task string) (json.RawMessage, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
