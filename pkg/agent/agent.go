@@ -365,8 +365,9 @@ func extractTagAttribute(tag, attr string) string {
 
 // BuildSystemPrompt constructs the full system prompt including workspace
 // context from persistence files and the agent's available skills and tools.
+// It uses XML-tagged sections for clear, LLM-friendly structure.
 func (a *Agent) BuildSystemPrompt() string {
-	var parts []string
+	var sb strings.Builder
 
 	if a.pm != nil {
 		baseDir := a.pm.GetBaseDir()
@@ -376,34 +377,41 @@ func (a *Agent) BuildSystemPrompt() string {
 		}
 
 		bootstrap, _ := a.pm.CheckBootstrap()
-		if bootstrap {
-			items = append(items, i18n.FileBootstrap)
-			parts = append(parts, "NOTE: Execute the `BOOTSTRAP.md` process as defined in the workspace.")
-		}
+
+		// Structured environment context
+		sb.WriteString("<context>\n")
 
 		now := time.Now()
 		zone, offset := now.Zone()
-		parts = append(parts, fmt.Sprintf("Current time %s, zone %s (UTC%+d)", now.Format(time.RFC3339), zone, offset/3600))
+		sb.WriteString(fmt.Sprintf("Current time: %s, timezone: %s (UTC%+d)\n", now.Format(time.RFC3339), zone, offset/3600))
+		sb.WriteString(fmt.Sprintf("Workspace: %s\n", baseDir))
 
-		parts = append(parts, fmt.Sprintf("Workspace %s", baseDir))
-
-		// files of baseDir
+		// Workspace file listing
 		entrys, err := os.ReadDir(baseDir)
 		if err != nil {
 			slog.Warn("Failed to read workspace directory", "dir", baseDir, "error", err)
 		}
 
-		list := make([]string, 0, len(entrys))
+		sb.WriteString("<workspace_files>\n")
 		for _, entry := range entrys {
 			if entry.IsDir() {
-				list = append(list, entry.Name()+"/")
+				sb.WriteString(entry.Name() + "/\n")
 			} else {
-				list = append(list, entry.Name())
+				sb.WriteString(entry.Name() + "\n")
 			}
 		}
+		sb.WriteString("</workspace_files>\n")
+		sb.WriteString("</context>\n\n")
 
-		parts = append(parts, "Workspace files:\n"+strings.Join(list, "\n"))
+		// Bootstrap notice
+		if bootstrap {
+			items = append(items, i18n.FileBootstrap)
+			sb.WriteString("<bootstrap>\n")
+			sb.WriteString("Execute the `BOOTSTRAP.md` process as defined in the workspace.\n")
+			sb.WriteString("</bootstrap>\n\n")
+		}
 
+		// Persistence file contents (AGENTS.md, BOOTSTRAP.md, etc.)
 		for _, item := range items {
 			content, err := a.pm.ReadFile(item)
 			if err != nil {
@@ -413,24 +421,22 @@ func (a *Agent) BuildSystemPrompt() string {
 				continue
 			}
 			if content != "" {
-				parts = append(parts, content)
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
 			}
 		}
 	}
-
-	var sb strings.Builder
-	sb.WriteString(strings.Join(parts, "\n\n"))
 
 	// List available skills (higher-level capabilities)
 	if list := a.skills.List(); len(list) != 0 {
 		sb.WriteString(a.strings.AvailableSkillsHeader)
 		for _, skill := range list {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", skill.Path(), skill.Description()))
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", skill.Path(), skill.Description()))
 		}
 		sb.WriteString(a.strings.UseSkillsHint)
 	}
 
-	// List available tools (low-level operations)
+	// List available tools with structured XML definitions
 	if len(a.tools) > 0 {
 		sb.WriteString(a.strings.AvailableToolsHeader)
 		hasSubSession := false
@@ -438,8 +444,9 @@ func (a *Agent) BuildSystemPrompt() string {
 			if !tool.Enabled() {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Name(), tool.Description()))
+			sb.WriteString(fmt.Sprintf("<tool name=%q description=%q>\n", tool.Name(), tool.Description()))
 			sb.WriteString(FormatToolParameters(tool.Parameters()))
+			sb.WriteString("</tool>\n")
 			if !hasSubSession && tool.Name() == "sub_session" {
 				hasSubSession = true
 			}
