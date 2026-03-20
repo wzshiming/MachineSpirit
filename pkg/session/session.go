@@ -148,7 +148,12 @@ func (s *Session) PrepareCompress(keepRecent int) (textToSummarize string, valid
 	// Build the conversation text for summarization
 	var sb strings.Builder
 	for _, msg := range toCompress {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
+		runes := []rune(msg.Content)
+		if len(runes) > 1000 {
+			sb.WriteString(fmt.Sprintf("[%s]: %s [truncated, original length %d runes]\n", msg.Role, string(runes[:1000]), len(runes)))
+		} else {
+			sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, msg.Content))
+		}
 	}
 
 	return sb.String(), keep, currentCount, nil
