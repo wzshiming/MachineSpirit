@@ -30,7 +30,7 @@ func (t *BashTool) Description() string {
 func (t *BashTool) Parameters() []agent.ToolParameter {
 	return []agent.ToolParameter{
 		{Name: "command", Type: "string", Required: true, Description: "The shell command to execute."},
-		{Name: "timeoutSecond", Type: "int", Required: false, Description: "Timeout in seconds. 0 means no timeout."},
+		{Name: "timeoutSecond", Type: "int", Required: false, Description: "Timeout in seconds. default is 5 seconds."},
 	}
 }
 
@@ -50,6 +50,10 @@ func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (json.Raw
 
 	if params.Command == "" {
 		return nil, fmt.Errorf("command is required")
+	}
+
+	if params.TimeoutSecond == 0 {
+		params.TimeoutSecond = 5
 	}
 
 	if params.TimeoutSecond > 0 {
