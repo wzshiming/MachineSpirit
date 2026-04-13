@@ -33,4 +33,6 @@ COPY --from=builder /ms /usr/local/bin/ms
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/bin/ms"]
+COPY entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT [ "/entrypoint.sh" ]
