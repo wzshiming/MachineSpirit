@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ${IMAGE_PREFIX}library/alpine:${ALPINE_VERSION} AS ms
 
 RUN --mount=type=cache,target=/var/cache/apk \
-    apk add ca-certificates bash curl git python3 py3-pip nodejs npm && \
+    apk add ca-certificates bash curl git python3 py3-pip nodejs npm jq && \
     update-ca-certificates
 
 COPY --from=builder /ms /usr/local/bin/ms
