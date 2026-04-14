@@ -80,6 +80,29 @@ func NewSession(l llm.LLM, opts ...opt) *Session {
 	return s
 }
 
+// Recover ensures that the last user message has a corresponding assistant response.
+// If the last message is from the user, it triggers a completion to generate the missing assistant response.
+// This can be used to recover from interruptions the session.
+func (s *Session) Recover(ctx context.Context) error {
+	if len(s.transcript) == 0 {
+		return nil
+	}
+
+	if s.transcript[len(s.transcript)-1].Role != llm.RoleUser {
+		return nil
+	}
+
+	prompt := s.transcript[len(s.transcript)-1]
+	s.transcript = s.transcript[:len(s.transcript)-1]
+	_, err := s.Complete(ctx, SessionRequest{
+		Prompt: prompt,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to complete missing assistant response: %w", err)
+	}
+	return nil
+}
+
 // Complete sends the prompt through the underlying LLM and records the exchange.
 func (s *Session) Complete(ctx context.Context, req SessionRequest) (llm.Message, error) {
 	if s.llm == nil {

@@ -122,6 +122,12 @@ func main() {
 		}
 	} else {
 		slog.Info("Loaded previous session from session/current.ndjson")
+
+		err = session.Recover(ctx)
+		if err != nil {
+			slog.Error("Failed to recover session", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	baseTools := []agent.Tool{
@@ -250,6 +256,12 @@ func main() {
 							displayFilename += ".ndjson"
 						}
 						fmt.Printf("Session loaded from session/%s\n", displayFilename)
+
+						err = session.Recover(ctx)
+						if err != nil {
+							slog.Error("Failed to recover session", "error", err)
+							fmt.Printf("Error: Failed to recover session: %v\n", err)
+						}
 					}
 					return
 				} else if strings.HasPrefix(text, "/skills") {
