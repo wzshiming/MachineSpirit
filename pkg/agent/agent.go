@@ -445,6 +445,7 @@ func (a *Agent) BuildSystemPrompt() string {
 		sb.WriteString(a.strings.AvailableToolsHeader)
 		hasSubSession := false
 		hasCompress := false
+		hasForkBash := false
 		for _, tool := range a.tools {
 			if !tool.Enabled() {
 				continue
@@ -457,11 +458,17 @@ func (a *Agent) BuildSystemPrompt() string {
 			if !hasCompress && tool.Name() == "compress_transcript" {
 				hasCompress = true
 			}
+			if !hasForkBash && tool.Name() == "fork_bash" {
+				hasForkBash = true
+			}
 		}
 		sb.WriteString(a.strings.ToolCallInstructions)
 		sb.WriteString(a.strings.MultipleToolCallsHint)
 		if hasSubSession {
 			sb.WriteString(a.strings.SubSessionHint)
+		}
+		if hasForkBash {
+			sb.WriteString(a.strings.ForkBashHint)
 		}
 		if hasCompress {
 			sb.WriteString(a.strings.CompressHint)

@@ -134,6 +134,7 @@ func main() {
 		tools.NewBashTool(),
 		tools.NewWriteTool(),
 		tools.NewReadTool(),
+		tools.NewForkBashTool(),
 	}
 
 	var ag *agent.Agent

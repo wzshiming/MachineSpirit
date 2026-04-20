@@ -9,6 +9,7 @@ type agentStrings struct {
 	MultipleToolCallsHint string
 	PreferSkillsHint      string
 	SubSessionHint        string
+	ForkBashHint          string
 	CompressHint          string
 	FinalResponsePrompt   string
 	ReplanPrompt          string
@@ -24,6 +25,7 @@ func englishStrings() agentStrings {
 		MultipleToolCallsHint: "You can make multiple tool calls in a single response.\n",
 		PreferSkillsHint:      "Prefer using skills for complex, multi-step operations when available.\n\n",
 		SubSessionHint:        "Use the sub_session tool to delegate independent sub-tasks that can run in parallel, or for long-running operations that should not block the conversation.\n",
+		ForkBashHint:          "Use the fork_bash tool to run shell commands in the background. You can list running forks to check their status and output, and terminate forks that are no longer needed.\n",
 		CompressHint:          "**IMPORTANT**: Monitor the transcript size reported by the compress_transcript tool. When the transcript exceeds the threshold, you MUST call compress_transcript to free up context window space. Do not wait for the user to ask.\n",
 		FinalResponsePrompt:   "Based on these results, provide a final response to the user.\n",
 		ReplanPrompt:          "\n\nSome tools failed. Please replan or provide an alternative solution. (Attempt %d/%d)",
